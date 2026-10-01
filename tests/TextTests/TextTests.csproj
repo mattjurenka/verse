@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <AssemblyName>TextTests</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Compiles the real files, not copies, so these tests cannot drift from shipped code.
+         Only the Unity-free ones are listed; everything else needs the game to run. -->
+    <Compile Include="../../src/HallPatton/Matcher.cs" />
+    <Compile Include="../../src/HallPatton/Command.cs" />
+    <Compile Include="../../src/HallPatton/ReplyText.cs" />
+    <Compile Include="../../src/HallPatton/Dialogue.cs" />
+    <Compile Include="../../src/HallPatton/Persona.cs" />
+  </ItemGroup>
+</Project>

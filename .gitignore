@@ -1,0 +1,11 @@
+# build output
+.nuget/
+obj/
+bin/
+result
+result-*
+
+# Third-party payloads and the 2 GB dedicated-server install live under tools/;
+# the repo's own scripts there are tracked.
+tools/*
+!tools/*.sh
