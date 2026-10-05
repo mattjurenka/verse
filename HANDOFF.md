@@ -306,18 +306,48 @@ back, now as its own config key rather than a replacement for the transpiler:
   in `/etc/valheim.env`, outside the repo. Mind the 54-byte ceiling if crossplay is ever
   re-enabled, and check the join code after any rename.
 
-### Crossplay was tried and REVERTED — the server is on the Steam backend
+### Crossplay is ON again — PlayFab backend, no password
 
-**Current live state (22:56 UTC): Steam backend, no `-crossplay`.** Verified from outside: A2S on
-2457 answers 212 bytes with the name intact, max players 25, visibility 1; and
-`ISteamApps/GetServersAtAddress` lists `137.184.234.238:2457`. Joinable at
-`play.verseworlds.fun:2456` via Join Game → Add server, any password accepted.
+**Current live state (2026-10-05 04:44 UTC): `-crossplay`, join code 968470, name
+`_<color=#FFFF00>VERSE</color> - Your Own World` (46 of the 54-character budget), and no
+password at all.** The activation line is there:
 
-Read the rest of this section before trying `-crossplay` again. It is still the only
+```
+Session "…- Your Own World" registered with join code 968470
+Retry join-code check 99
+Session "…- Your Own World" with join code 968470 and IP 137.184.234.238:2456 is active with 0 player(s)
+```
+
+`Retry join-code check` is the line to look for, because it is the callback that never fired on
+any of the four failures below. The join code is a fresh one (968470, not the stuck 555433), and
+the only thing done differently was **waiting** — two and a half days, which is what the "let the
+stale lobbies age out" advice below amounts to — then making all three changes at once and
+restarting exactly once.
+
+**How it is toggled now.** `CROSSPLAY` in `/etc/valheim.env` is appended to `ExecStart` as a bare
+`$CROSSPLAY` (unquoted, so systemd word-splits it; empty or commented out means Steam backend).
+Nothing else has to be edited to go back, which is the point - the previous revert needed the
+unit file.
+
+**And there is a watchdog now**, as this section used to ask for: `tools/crossplay-watchdog.sh`,
+installed at `/opt/valheim/crossplay-watchdog.sh` as a root-owned oneshot
+`valheim-crossplay-watchdog.service` that is `WantedBy=valheim.service`. It waits up to five
+minutes after a crossplay start for `is active with`, and if it does not come - or if the process
+exits, which is what an over-long `SERVER_NAME` does - it comments `CROSSPLAY` out and restarts.
+It cannot loop: the start that follows its own revert has no `-crossplay` to watch. It logs under
+`journalctl -t valheim-crossplay`, and on this start it said *"the session activated - crossplay
+is up and discoverable"*.
+
+**No password** is the plugin's `NoPassword = true` (not `AcceptAnyPassword`, which is left on as
+the graceful fallback): the dialog and the padlock both follow `ZNet.m_serverPassword`, which
+`PublicServer` blanks after vanilla's own validation. The real `-password` on `ExecStart` has to
+stay, because `-public 1` without one calls `Application.Quit()`.
+
+Read the rest of this section before changing any of it. Crossplay is still the only
 configuration where the community tab's search box finds the server
-(`PlayFabMatchmaking.ServerSideFiltering` is `true` where Steam's is `false`), it worked twice,
-and it brought in a Nintendo Switch player — but it then failed four times running and had to be
-backed out.
+(`PlayFabMatchmaking.ServerSideFiltering` is `true` where Steam's is `false`), and it has now
+worked three times and brought in a Nintendo Switch player — but it also failed four times
+running, and the failure is silent and total.
 
 **The failure: stuck in `State.Creating`, which is silent and total.** `OnSessionUpdated` logs
 `registered with join code <n>`, sets `m_retries = 100` and calls `CheckJoinCodeIsUnique()`.
@@ -401,12 +431,11 @@ Expect **no UDP listener on 2456**: the transport is a Party network over Azure 
 `ss -lunp` shows only the query socket on 2457. Health is the `Session … is active` line, not a
 socket.
 
-Reverting (already done): drop ` -crossplay` (and any ` -instanceid …`) from `ExecStart`,
-`daemon-reload`, restart. The name may go back up to 63 bytes at the same time — the 54-byte
-budget is a crossplay-only constraint. It was left at 44 bytes
-(`_<color=#FFFF00>VERSE</color> - Any Password`) so that re-enabling crossplay needs no name
-change; `"Your Own World"` is the 17 characters that were dropped to fit, if you want them back
-while on Steam.
+Reverting: comment out `CROSSPLAY` in `/etc/valheim.env` and restart — the flag lives there now,
+not in the unit, and the watchdog does exactly this by itself if a session never activates. The
+name may go back up to 63 bytes at the same time, since the 54-byte budget is a crossplay-only
+constraint; it is currently 46 (`_<color=#FFFF00>VERSE</color> - Your Own World`), which leaves
+eight characters spare while crossplay is on.
 
 ### The account key, and why switching backend nearly destroyed every verse
 
