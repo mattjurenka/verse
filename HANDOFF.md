@@ -113,6 +113,38 @@ vertices levelled, the payload re-read cold off the ZDO at the height it was giv
 **Not yet verified with a client in the world** — only a player standing there proves the mesh
 moves.
 
+### A level wall top is what removes the gaps, and the unbreakable rule is what pays for it
+
+The ring followed the terrain for a good reason — stone collapses in tall stacks, and two
+earlier builds proved it — but a terrain-following top means the walkway and railing on top of
+it step along behind it, and every step leaves a wedge of daylight under the next piece. That
+was the "weird gaps in the wall" from the game. Collapse is support damage against a few hundred
+hit points, and `Fixture` has made these pieces unbreakable since, so the constraint is gone:
+`ArenaRing.Raise` now builds to **one height all the way round**, with as many courses per
+segment as it needs (246 pieces on the live site, averaging 6 per segment, where terrain-
+following used 123), laid downwards from the top so the slack is buried rather than left as a
+gap. The walkway and railing are flat rings with it — measured spread 0.00 m. With
+`ArenaUnbreakable` off it goes back to following the terrain, because a venue that falls over is
+worse than one with a stepped top.
+
+### Things people have to walk up must be ramps, not steps
+
+Separate level plates 0.4 m apart are not a stair: between them there is nothing to walk onto,
+so whether a character rides up the next plate's edge is a question about a capsule and a
+collider, and in the game the answer was "I have to jump". `ArenaStand.Ramp` tilts the same
+boards to the slope and overlaps them along it, which is one continuous surface at about 20° —
+a character walks up it like a hill. The piece's own up axis comes from `Footing`, so the
+rotation is arithmetic.
+
+### Destroyed ZDOs stay readable for a frame, and it has misled three counts
+
+`ZDOMan.DestroyZDO` only queues the id on `m_destroySendList`; the object stays in
+`m_objectsByID` until `SendDestroyed` runs on the next update. Anything that tears fixtures down
+and then counts what is standing counts both. It has produced a gallery reported as 334 pieces,
+a nine-step stair reported as seventeen, and a walkway reported as three metres out of level in
+the frame it was relaid flat. `Fixture.Doomed` asks the queue (reflection — it is private), and
+the fixture scans skip anything on it.
+
 ### Valheim has no climbing, so "put a ladder on it" does not work
 
 Looked for it after the arena's ladder came back from the game as "not actually climbable":

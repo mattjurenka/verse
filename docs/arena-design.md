@@ -388,7 +388,7 @@ broadcast with `GlobalChat`, which already crosses verses.
 | `ArenaDeckPrefab` | `wood_floor` | the floor piece the deck under the gate chests is laid from; empty puts chests back on bare terrain |
 | `ArenaLevelGround` | `true` | fill the hollows in the fighting floor, and pave what gets filled, by writing the zone's terrain deltas from the server — see `Ground.cs`. **Raise-only**: ground already above the fill line is left exactly as the seed made it. It levelled the whole venue flat once; that came back from the game as a disc of paving with a cliff round it |
 | `ArenaBoardwalk` / `ArenaBoardPrefab` | `true` / `wood_floor` | the ring of boards on the ground around the outside of the wall. Cosmetic, and where a spectator lands |
-| `ArenaGallery` | `true` | the walkway on top of the wall, its iron railing and the flight of steps up to it |
+| `ArenaGallery` | `true` | the walkway on top of the wall, its two courses of iron railing, and the ramp up to it |
 | `ArenaRailPrefab` | `iron_wall_2x2` | vanilla's Cage Wall: iron bars, see-through and solid, which is the only reason a gallery over the floor is safe to offer |
 | `ArenaUnbreakable` | `true` | write an unreachable health into every fixture and the gate chests. Vanilla has no indestructible flag; health is a field on the ZDO, so this is a number the server owns |
 | `ArenaWaves` | `10` | |
@@ -456,11 +456,17 @@ Built, in `src/Verse`:
   it in `Player` or `Character`, and the only `Ladder` component is a lift that teleports you
   to a target transform, which that piece does not carry. So a wood ladder is climbed purely by
   walking up its collider, which works only when it faces the right way, and which way that is
-  lives in a Unity scene the server cannot read. The steps are the same boards as the walkway,
-  0.4 m apart (well inside what a player walks up) and laid level, so there is no orientation
-  to get wrong — and "is this climbable" becomes arithmetic the self-test can check. Old note,
-  kept because it is the finding: a piece that does carry `Ladder` is a lift rather than a
-  climb, so a stack of those would be a staircase of key presses.
+  lives in a Unity scene the server cannot read. Steps were the second try — the same boards
+  laid level 0.4 m apart, inside the half-metre a player is usually said to step over — and
+  those came back as *"I have to jump"*: a stack of separate plates is not a stair, because
+  between the plates there is nothing to walk onto. So it is a **ramp**: the same boards tilted
+  to the slope and overlapped along it into one continuous surface, about 20° and started on the
+  high side of the site, which a character walks up the way it walks up a hill. A floor tile's
+  own up axis is measured (`Footing`), so the rotation is arithmetic, and the self-test checks
+  the slope angle rather than a step height. The railing is **two courses** of cage wall, the
+  second offset half a piece around the ring so its bars fall between the first's rather than
+  coplanar with them: 2.7 m of iron over the walkway, after one course came back as "you can
+  barely jump over them".
 - **`Footing.cs`** — how far a prefab reaches below and above its own origin, measured off its
   colliders (meshes as a fallback) and cached. A ZDO's position is the prefab's origin, and
   where that sits inside the object is per-prefab: `wood_floor`'s is 0.10 m under its walking
