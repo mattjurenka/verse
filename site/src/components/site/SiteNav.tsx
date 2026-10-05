@@ -48,13 +48,7 @@ export function SiteNav() {
   return (
     <header className="sticky top-0 z-50 border-b border-border/60 bg-background/80 backdrop-blur-md">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-6 py-4 sm:gap-4">
-        <div className="flex min-w-0 items-center gap-3">
-          <Wordmark />
-
-          {/* The join code lives in the header because it is the one thing a visitor came for,
-              and it should not need a scroll to find. */}
-          <JoinCodeChip />
-        </div>
+        <Wordmark />
 
         <nav className="hidden items-center gap-8 md:flex">
           {LINKS.map((link) => (
@@ -68,36 +62,37 @@ export function SiteNav() {
           ))}
         </nav>
 
-        <div className="hidden md:block">
-          <Button asChild size="sm">
-            <a href="#connect">Join the server</a>
-          </Button>
-        </div>
+        {/* The join code stands where "Join the server" used to: it is the same call to
+            action with the scroll taken out, so it gets that button's weight and colour.
+            Unlike the button it is here at every width - on a phone the code is the whole
+            reason somebody opened the page, and it should not be behind the menu. */}
+        <div className="flex min-w-0 items-center gap-2">
+          <JoinCodeChip tone="solid" />
 
-        <Sheet>
-          <SheetTrigger asChild>
-            <Button variant="ghost" size="icon" className="md:hidden" aria-label="Open menu">
-              <Menu className="size-5" />
-            </Button>
-          </SheetTrigger>
-          <SheetContent side="right" className="w-64">
-            <nav className="mt-10 flex flex-col gap-6 px-6">
-              <JoinCodeChip className="self-start" />
-              {LINKS.map((link) => (
-                <SheetClose asChild key={link.href}>
-                  <a href={link.href} className="text-base text-foreground">
-                    {link.label}
-                  </a>
+          <Sheet>
+            <SheetTrigger asChild>
+              <Button variant="ghost" size="icon" className="md:hidden" aria-label="Open menu">
+                <Menu className="size-5" />
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="right" className="w-64">
+              <nav className="mt-10 flex flex-col gap-6 px-6">
+                {LINKS.map((link) => (
+                  <SheetClose asChild key={link.href}>
+                    <a href={link.href} className="text-base text-foreground">
+                      {link.label}
+                    </a>
+                  </SheetClose>
+                ))}
+                <SheetClose asChild>
+                  <Button asChild className="mt-2">
+                    <a href="#connect">Join the server</a>
+                  </Button>
                 </SheetClose>
-              ))}
-              <SheetClose asChild>
-                <Button asChild className="mt-2">
-                  <a href="#connect">Join the server</a>
-                </Button>
-              </SheetClose>
-            </nav>
-          </SheetContent>
-        </Sheet>
+              </nav>
+            </SheetContent>
+          </Sheet>
+        </div>
       </div>
     </header>
   )

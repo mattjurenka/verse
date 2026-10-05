@@ -49,6 +49,23 @@ when the code changes for good, but nothing breaks if it drifts, which is the po
 crossplay is off the chain reports no code at all and every component falls back to the
 address rather than showing a number that would not work.
 
+**How often does it actually change?** Rarely, but unpredictably - the worst combination for
+a number typed into a page. What the journal shows (`journalctl -u valheim | grep 'join code'`
+on the game box):
+
+| when | code | |
+|---|---|---|
+| 2 Oct 22:23 | `781583` | first crossplay session |
+| 2 Oct 22:32 | `555433` | changed |
+| 2 Oct 22:38 → 22:54 | `555433` | four more restarts, same code |
+| 5 Oct 04:44 | `968470` | new, after ~2.5 days with crossplay off |
+
+So a restart does **not** normally mint a new code: five restarts inside half an hour all came
+back with `555433`. PlayFab appears to hand the same code back while it still remembers the
+session and allocate a fresh one once it does not, so the thing that changes a code is a long
+gap, not a bounce. None of that is documented by Iron Gate or promised anywhere, which is the
+argument for reading it rather than writing it down: one request makes the question moot.
+
 ## Deploying
 
 **Pushing to GitHub does not deploy anything.** The Cloudflare Pages project `verseworlds`

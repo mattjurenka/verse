@@ -77,9 +77,12 @@ single-threaded: one pegged core on a 2 vCPU box reads as a harmless ~50% in the
 
 Everything else here is passkey-gated. This is not, because the crossplay join code is the
 opposite of a secret — it is the thing players are handed — and verseworlds.fun reads it so
-that the code on the page is the code the running server actually has. PlayFab issues a new
-one when the session registers, so a code typed into the website would go stale silently, and
-a stale join code is a server nobody can reach.
+that the code on the page is the code the running server actually has. PlayFab issues the code
+when the session registers, and while a restart usually gets the same one back, a long enough
+gap does not (`555433` survived five restarts in half an hour; two and a half days off turned
+it into `968470`). A code typed into the website would therefore go stale silently and rarely
+— rarely enough that nobody would think to check — and a stale join code is a server nobody
+can reach.
 
 It carries the code and nothing else: no names, no metrics, no console. The answer is
 **derived, not stored** — the flag comes from the running process's own `/proc/<pid>/cmdline`

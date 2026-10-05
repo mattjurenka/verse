@@ -1,5 +1,6 @@
 import { Check, Copy } from "lucide-react"
 import { useState } from "react"
+import { Button } from "@/components/ui/button"
 import { SERVER_ADDRESS, spaced, useJoin } from "@/lib/join"
 import { cn } from "@/lib/utils"
 
@@ -29,10 +30,36 @@ function useCopy() {
   return { copied, copy }
 }
 
-/** Compact, for the site header: visible on every page view without scrolling. */
-export function JoinCodeChip({ className }: { className?: string }) {
+/**
+ * Compact, for the site header and the footer.
+ *
+ * `tone="solid"` is the header's: it stands where a "Join the server" button used to, so it
+ * wears that button's own colours - primary background, dark text - and is a call to action
+ * rather than a label. It is still a copy button, because copying the code is the action.
+ * `quiet` is the footer's, where a filled button would shout.
+ *
+ * With no code there is nothing to copy and the address is too long to sit in a header, so
+ * the solid one falls back to the button it replaced.
+ */
+export function JoinCodeChip({
+  className,
+  tone = "quiet",
+}: {
+  className?: string
+  tone?: "quiet" | "solid"
+}) {
   const { code } = useJoin()
   const { copied, copy } = useCopy()
+
+  const solid = tone === "solid"
+
+  if (solid && !code) {
+    return (
+      <Button asChild size="sm" className={className}>
+        <a href="#connect">Join the server</a>
+      </Button>
+    )
+  }
 
   const value = code ?? SERVER_ADDRESS
   const label = code ? "Join code" : "Address"
@@ -44,21 +71,43 @@ export function JoinCodeChip({ className }: { className?: string }) {
       title={`Copy the ${label.toLowerCase()}`}
       aria-label={`${label} ${value}. Click to copy.`}
       className={cn(
-        "group flex items-center gap-2 rounded-full border border-primary/40 bg-primary/10 py-1.5 pl-3 pr-2.5",
-        "transition-colors hover:border-primary/70 hover:bg-primary/15",
+        "group flex shrink-0 items-center gap-2 transition-colors",
+        solid
+          ? "h-8 rounded-lg bg-primary pl-2.5 pr-2 hover:bg-primary/80"
+          : [
+              "rounded-full border border-primary/40 bg-primary/10 py-1.5 pl-3 pr-2.5",
+              "hover:border-primary/70 hover:bg-primary/15",
+            ],
         className,
       )}
     >
-      <span className="hidden text-[11px] uppercase tracking-wider text-muted-foreground sm:inline">
+      <span
+        className={cn(
+          "hidden text-[11px] uppercase tracking-wider sm:inline",
+          solid ? "text-primary-foreground/75" : "text-muted-foreground",
+        )}
+      >
         {label}
       </span>
-      <code className="font-heading text-sm tracking-wider text-foreground tabular-nums">
+      <code
+        className={cn(
+          "font-heading text-sm tracking-wider tabular-nums",
+          solid ? "text-primary-foreground" : "text-foreground",
+        )}
+      >
         {code ? spaced(code) : value}
       </code>
       {copied ? (
-        <Check className="size-3.5 text-primary" />
+        <Check className={cn("size-3.5", solid ? "text-primary-foreground" : "text-primary")} />
       ) : (
-        <Copy className="size-3.5 text-muted-foreground group-hover:text-foreground" />
+        <Copy
+          className={cn(
+            "size-3.5",
+            solid
+              ? "text-primary-foreground/70 group-hover:text-primary-foreground"
+              : "text-muted-foreground group-hover:text-foreground",
+          )}
+        />
       )}
     </button>
   )
