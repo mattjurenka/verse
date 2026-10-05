@@ -33,27 +33,18 @@ function useCopy() {
 /**
  * Compact, for the site header and the footer.
  *
- * `tone="solid"` is the header's: it stands where a "Join the server" button used to, so it
- * wears that button's own colours - primary background, dark text - and is a call to action
- * rather than a label. It is still a copy button, because copying the code is the action.
- * `quiet` is the footer's, where a filled button would shout.
+ * It stands where a "Join the server" button used to, so it wears that button's own colours -
+ * primary background, dark text - and reads as a call to action rather than a label. It is
+ * still a copy button, because copying the code is the action.
  *
- * With no code there is nothing to copy and the address is too long to sit in a header, so
- * the solid one falls back to the button it replaced.
+ * With no code there is nothing to copy and the address is too long to sit in a header, so it
+ * falls back to the button it replaced.
  */
-export function JoinCodeChip({
-  className,
-  tone = "quiet",
-}: {
-  className?: string
-  tone?: "quiet" | "solid"
-}) {
+export function JoinCodeChip({ className }: { className?: string }) {
   const { code } = useJoin()
   const { copied, copy } = useCopy()
 
-  const solid = tone === "solid"
-
-  if (solid && !code) {
+  if (!code) {
     return (
       <Button asChild size="sm" className={className}>
         <a href="#connect">Join the server</a>
@@ -61,53 +52,28 @@ export function JoinCodeChip({
     )
   }
 
-  const value = code ?? SERVER_ADDRESS
-  const label = code ? "Join code" : "Address"
-
   return (
     <button
       type="button"
-      onClick={() => copy(value)}
-      title={`Copy the ${label.toLowerCase()}`}
-      aria-label={`${label} ${value}. Click to copy.`}
+      onClick={() => copy(code)}
+      title="Copy the join code"
+      aria-label={`Join code ${code}. Click to copy.`}
       className={cn(
-        "group flex shrink-0 items-center gap-2 transition-colors",
-        solid
-          ? "h-8 rounded-lg bg-primary pl-2.5 pr-2 hover:bg-primary/80"
-          : [
-              "rounded-full border border-primary/40 bg-primary/10 py-1.5 pl-3 pr-2.5",
-              "hover:border-primary/70 hover:bg-primary/15",
-            ],
+        "group flex h-8 shrink-0 items-center gap-2 rounded-lg bg-primary pl-2.5 pr-2",
+        "transition-colors hover:bg-primary/80",
         className,
       )}
     >
-      <span
-        className={cn(
-          "hidden text-[11px] uppercase tracking-wider sm:inline",
-          solid ? "text-primary-foreground/75" : "text-muted-foreground",
-        )}
-      >
-        {label}
+      <span className="hidden text-[11px] uppercase tracking-wider text-primary-foreground/75 sm:inline">
+        Join code
       </span>
-      <code
-        className={cn(
-          "font-heading text-sm tracking-wider tabular-nums",
-          solid ? "text-primary-foreground" : "text-foreground",
-        )}
-      >
-        {code ? spaced(code) : value}
+      <code className="font-heading text-sm tracking-wider text-primary-foreground tabular-nums">
+        {spaced(code)}
       </code>
       {copied ? (
-        <Check className={cn("size-3.5", solid ? "text-primary-foreground" : "text-primary")} />
+        <Check className="size-3.5 text-primary-foreground" />
       ) : (
-        <Copy
-          className={cn(
-            "size-3.5",
-            solid
-              ? "text-primary-foreground/70 group-hover:text-primary-foreground"
-              : "text-muted-foreground group-hover:text-foreground",
-          )}
-        />
+        <Copy className="size-3.5 text-primary-foreground/70 group-hover:text-primary-foreground" />
       )}
     </button>
   )

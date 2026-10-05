@@ -67,7 +67,7 @@ export function SiteNav() {
             Unlike the button it is here at every width - on a phone the code is the whole
             reason somebody opened the page, and it should not be behind the menu. */}
         <div className="flex min-w-0 items-center gap-2">
-          <JoinCodeChip tone="solid" />
+          <JoinCodeChip />
 
           <Sheet>
             <SheetTrigger asChild>
