@@ -61,8 +61,46 @@ namespace Verse
         /// </summary>
         private const float Slack = 0.3f;
 
-        /// <summary>Which way round the ring the stair starts, in radians.</summary>
-        private const float StairBearing = 0f;
+        /// <summary>
+        /// Which way round the ring the way up starts, in radians: wherever the ground outside
+        /// the wall is highest.
+        ///
+        /// <para>With the wall's top level, the climb is the height of the wall above the ground
+        /// at its foot - so the high side of the site is the short way up. It was a fixed bearing
+        /// of zero, which on the live site happened to land on the low side and produced a ramp
+        /// of 10.6 m climbing 27 m around the ring. The same ramp on the high side is a third of
+        /// that.</para>
+        /// </summary>
+        private static float StairBearing
+        {
+            get
+            {
+                Vector3 centre = ArenaSite.Centre;
+                if (_bearingAt == centre) return _bearing;
+
+                float radius = ArenaSite.Radius + ArenaRing.WallThickness * 0.5f + 1f;
+                float best = 0f, highest = float.MinValue;
+
+                for (int i = 0; i < 36; i++)
+                {
+                    float bearing = i * 2f * Mathf.PI / 36f;
+                    Vector3 at = On(centre, bearing, radius);
+
+                    float ground = ArenaSite.HeightAt(at.x, at.z);
+                    if (ground <= highest) continue;
+
+                    highest = ground;
+                    best = bearing;
+                }
+
+                _bearing = best;
+                _bearingAt = centre;
+                return best;
+            }
+        }
+
+        private static float _bearing;
+        private static Vector3 _bearingAt = new Vector3(float.NaN, float.NaN, float.NaN);
 
         /// <summary>How far the railing's base is sunk below the walkway, to close the seam.</summary>
         private const float RailSink = 0.3f;
@@ -188,13 +226,28 @@ namespace Verse
                 float walkway = float.MinValue;
                 float under = float.MaxValue;
 
+                // Where the way up starts now, so a ramp left on the far side of the ring by an
+                // older build is noticed. The bearing is chosen from the ground rather than
+                // written down, so it moves when the ground does.
+                Vector3 foot = StairFoot(centre);
+                bool atFoot = false;
+
                 foreach (ZDO zdo in standing)
                 {
                     if (zdo.GetPrefab() != deckHash) continue;
 
                     // The stair is made of these boards too, and carries its own marker so the
                     // two cannot be confused.
-                    if (IsStep(zdo)) { steps++; continue; }
+                    if (IsStep(zdo))
+                    {
+                        steps++;
+
+                        Vector3 p = zdo.GetPosition();
+                        float dx = p.x - foot.x, dz = p.z - foot.z;
+                        if (dx * dx + dz * dz < 25f) atFoot = true;
+
+                        continue;
+                    }
 
                     boards++;
 
@@ -214,7 +267,7 @@ namespace Verse
                 // The stair counts too: a gallery with no way up is not a gallery, and this is
                 // how a ladder or a flight of steps from an older build gets replaced rather
                 // than left standing beside the ramp.
-                if (boards >= decks && steps >= 2 &&
+                if (boards >= decks && steps >= 2 && atFoot &&
                     Mathf.Abs(walkway - highest) < Slack && Mathf.Abs(under - lowest) < Slack)
                 {
                     _built = true;
