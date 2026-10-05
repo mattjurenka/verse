@@ -44,7 +44,7 @@ namespace Verse
         /// venue that is already up pick the change up rather than keep the old look for
         /// ever.</para>
         /// </summary>
-        private const int Layout = 2;
+        private const int Layout = 3;
 
         private static readonly int TrimLayout = "verse.arena.trim.layout".GetStableHashCode();
 
@@ -230,16 +230,25 @@ namespace Verse
         private static int Hang(Vector3 centre, int hash, Bounds box, float inner, int count,
                                 float height)
         {
-            // The thin horizontal axis is the one the piece mounts along.
-            bool mountsAlongZ = box.size.z <= box.size.x;
+            // Measured off the meshes rather than the colliders, because on a banner the
+            // collider is the bar and nothing else: 0.20 x 0.20 x 1.41 m, which says which axis
+            // the bar runs along but cannot say which side of it the cloth hangs on. The mesh
+            // takes in the cloth, so both questions have an answer - and the one the eye cares
+            // about is the cloth.
+            if (!Footing.Box(hash, true, out Bounds visual)) visual = box;
 
-            // And which way along it is the front: the side the box's own middle leans towards.
-            float lean = mountsAlongZ ? box.center.z : box.center.x;
+            // The thin horizontal axis is the one the piece mounts along.
+            bool mountsAlongZ = visual.size.z <= visual.size.x;
+
+            // And which way along it is the front: the side the piece's own bulk leans towards.
+            float lean = mountsAlongZ ? visual.center.z : visual.center.x;
 
             VersePlugin.Log.LogInfo(
-                $"arena: a wall piece measuring {box.size.x:0.00} x {box.size.y:0.00} x " +
-                $"{box.size.z:0.00} m mounts along its own {(mountsAlongZ ? "z" : "x")}, " +
-                $"{(lean >= 0f ? "front first" : "back first")} - {count} of them");
+                $"arena: a wall piece measuring {visual.size.x:0.00} x {visual.size.y:0.00} x " +
+                $"{visual.size.z:0.00} m by its mesh ({box.size.x:0.00} x {box.size.y:0.00} x " +
+                $"{box.size.z:0.00} by its colliders) mounts along its own " +
+                $"{(mountsAlongZ ? "z" : "x")}, leaning {lean:+0.00;-0.00;0.00} m " +
+                $"{(lean >= 0f ? "forward" : "back")} - {count} of them");
 
             int made = 0;
 
