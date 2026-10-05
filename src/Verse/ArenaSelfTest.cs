@@ -27,6 +27,13 @@ namespace Verse
     /// </summary>
     internal static class ArenaSelfTest
     {
+        /// <summary>One board of a ramp: where it is and which way its surface faces.</summary>
+        private struct Board
+        {
+            internal Vector3 At;
+            internal Vector3 Up;
+        }
+
         private static readonly List<string> Results = new List<string>();
         private static int _failed;
         private static bool _ran;
@@ -687,8 +694,12 @@ namespace Verse
             // The stair is made of the same boards as the walkway and carries its own marker,
             // which is the only reliable way to tell them apart - an earlier version of this
             // went by height and counted 164 steps in a ten-step stair.
-            var climb = new List<Vector3>();
-            var tilt = new List<Vector3>();
+            // Position and surface normal together in one list, which is not fussiness: they
+            // were two lists and the sort below put only one of them in order, so every board
+            // was checked against another board's tilt. On the local world the table happened
+            // to come out in build order and it passed; on the live one it reported 13 good
+            // boards as wrong. A pair that must stay paired should not be two lists.
+            var climb = new List<Board>();
 
             foreach (ZDO piece in gallery)
             {
@@ -697,12 +708,11 @@ namespace Verse
 
                 if (!ArenaStand.IsStep(piece)) continue;
 
-                climb.Add(piece.GetPosition());
-
-                // The board's own surface normal, which is where the last round's bug lived:
-                // the boards were tilted across the climb instead of along it, and "the ramp is
-                // angled the wrong way" was the only way to find out.
-                tilt.Add(piece.GetRotation() * Vector3.up);
+                climb.Add(new Board
+                {
+                    At = piece.GetPosition(),
+                    Up = piece.GetRotation() * Vector3.up,
+                });
             }
 
             Check($"{rails} piece(s) of railing stand along the inside of its top", rails > 0);
@@ -754,7 +764,7 @@ namespace Verse
             // for want of exactly this check - and it could not have had one, because whether a
             // ladder is climbable is a fact about a collider in a Unity scene, while whether a
             // step is walkable is arithmetic.
-            climb.Sort((a, b) => a.y.CompareTo(b.y));
+            climb.Sort((a, b) => a.At.y.CompareTo(b.At.y));
 
             // The slope between consecutive boards, which is what decides whether a character
             // walks up or has to jump. It is not the step height: the boards are tilted and
@@ -763,7 +773,7 @@ namespace Verse
             float steepest = 0f;
             for (int i = 1; i < climb.Count; i++)
             {
-                Vector3 a = climb[i - 1], b = climb[i];
+                Vector3 a = climb[i - 1].At, b = climb[i].At;
                 float flat = new Vector2(b.x - a.x, b.z - a.z).magnitude;
                 if (flat > 0.01f)
                     steepest = Mathf.Max(steepest, Mathf.Atan2(b.y - a.y, flat) * Mathf.Rad2Deg);
@@ -775,8 +785,9 @@ namespace Verse
             int near = 0, far = 0;
             Vector3 foot = ArenaStand.StairFoot(centre);
 
-            foreach (Vector3 p in climb)
+            foreach (Board board in climb)
             {
+                Vector3 p = board.At;
                 float dx = p.x - foot.x, dz = p.z - foot.z;
                 if (dx * dx + dz * dz < (ArenaSite.Radius * ArenaSite.Radius)) near++;
                 else far++;
@@ -799,9 +810,9 @@ namespace Verse
 
                 for (int j = 0; j < climb.Count; j++)
                 {
-                    if (climb[j].y <= climb[i].y + 0.05f) continue;
+                    if (climb[j].At.y <= climb[i].At.y + 0.05f) continue;
 
-                    float d = (climb[j] - climb[i]).sqrMagnitude;
+                    float d = (climb[j].At - climb[i].At).sqrMagnitude;
                     if (d >= gap || d > 16f) continue;
 
                     gap = d;
@@ -810,9 +821,9 @@ namespace Verse
 
                 if (next < 0) continue;
 
-                Vector3 ascent = climb[next] - climb[i];
+                Vector3 ascent = climb[next].At - climb[i].At;
                 var flat = new Vector2(ascent.x, ascent.z).normalized;
-                var lean = new Vector2(tilt[i].x, tilt[i].z);
+                var lean = new Vector2(climb[i].Up.x, climb[i].Up.z);
 
                 // Leaning back means the normal's horizontal part opposes the ascent.
                 if (Vector2.Dot(lean, flat) > 0.05f) backwards++;
@@ -829,7 +840,7 @@ namespace Verse
             // made this check fail on a stair that was in fact meeting the walkway.
             if (climb.Count >= 2)
             {
-                Vector3 last = climb[climb.Count - 1];
+                Vector3 last = climb[climb.Count - 1].At;
                 float board = Footing.Box(boardHash, out Bounds plank) ? plank.max.y : 0f;
                 float meets = ArenaRing.WallTopY(last) + 0.02f;
 
