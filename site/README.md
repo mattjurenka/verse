@@ -51,12 +51,25 @@ address rather than showing a number that would not work.
 
 ## Deploying
 
-The repo connects straight to a Cloudflare Pages project (Pages → your project → Settings →
-Builds): build command `pnpm build`, output directory `dist`, root directory `site`. Every
-push builds and deploys automatically, functions included.
+**Pushing to GitHub does not deploy anything.** The Cloudflare Pages project `verseworlds`
+has no git integration - `wrangler pages project list` prints `Git Provider: No` - so every
+deployment is a direct upload from a machine that runs:
 
-To push a build by hand instead: `pnpm deploy` (runs `wrangler pages deploy dist`; needs
-`wrangler login` once, or `CLOUDFLARE_API_TOKEN` in the environment).
+```sh
+pnpm deploy          # pnpm build && wrangler pages deploy dist
+```
+
+Needs `wrangler login` once, or `CLOUDFLARE_API_TOKEN` in the environment. The Functions
+bundle goes up with it (`✨ Uploading Functions bundle` in the output), so a change under
+`functions/` ships only through this command too. That is worth knowing because the failure
+is quiet: a missing Function is not a 404, it is the SPA's `index.html` served at
+`/api/whatever` with a 200, which looks like a routing bug rather than a build that never
+happened. `curl -s https://verseworlds.fun/api/health` is the cheap check - JSON means the
+Functions bundle is live, HTML means it is not.
+
+Connecting the repo to Pages (project → Settings → Builds: build command `pnpm build`,
+output `dist`, root directory `site`) would make a push enough. Until someone does that,
+the deploy is a deliberate act.
 
 ## Before this goes live
 
