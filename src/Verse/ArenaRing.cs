@@ -108,12 +108,19 @@ namespace Verse
 
         /// <summary>
         /// How far the standing wall's average height may be from the ground's before it is
-        /// rebuilt. Generous, because on unlevelled ground the segments follow the terrain and
-        /// their average is only roughly the height at the centre - this is here to catch a
-        /// ring left on the hillside after the site was levelled, which is metres out, not
-        /// centimetres.
+        /// rebuilt.
+        ///
+        /// <para>Two numbers, because the question is a different one in each case. On levelled
+        /// ground every segment sits at the same height and the average has to match it closely:
+        /// the first live deploy kept a ring whose average was 1.22 m below where the new floor
+        /// wanted it, which left the wall sunk into the floor and - worse - the gallery built at
+        /// the height the wall <i>should</i> have reached, hanging over the stone that was
+        /// actually there. Without levelling the segments follow the terrain, so their average
+        /// is only roughly the height at the centre and a tight test would rebuild the ring on
+        /// every boot for no reason.</para>
         /// </summary>
-        private const float HeightSlack = 1.5f;
+        private static float HeightSlack =>
+            VersePlugin.ArenaLevelGround.Value ? 0.3f : 2.5f;
 
         /// <summary>How wide the band is where the levelled ground eases back into the hillside.</summary>
         private const float LevelTaper = 8f;
@@ -399,11 +406,41 @@ namespace Verse
             Footing.Box(Wall().Prefab.GetStableHashCode(), out Bounds box) ? box.size.z : 1f;
 
         /// <summary>
-        /// The height of the top of the wall, where the gallery goes. The bottom row is buried
-        /// by <see cref="Sink"/>, so this is <see cref="Rows"/> rows of wall above that.
+        /// The height of the top of the wall, where the gallery goes.
+        ///
+        /// <para>Measured off the wall that is standing, when one is: the top of its highest
+        /// course, which is that piece's own middle plus half a row. The arithmetic - ground,
+        /// less the buried <see cref="Sink"/>, plus <see cref="Rows"/> rows - is only the
+        /// fallback for a ring that has not been built yet.</para>
+        ///
+        /// <para>The difference is not academic. On the first live deploy the ring predated the
+        /// levelled floor and stood 1.2 m below where the arithmetic said, so a gallery laid at
+        /// the arithmetic's answer would have been a walkway hanging over the stone it was
+        /// supposed to rest on. What the gallery needs is the height of the wall that is
+        /// actually there.</para>
         /// </summary>
-        internal static float WallTopY(Vector3 centre) =>
-            ArenaSite.HeightAt(centre.x, centre.z) + Sink + Wall().Height * Rows;
+        internal static float WallTopY(Vector3 centre)
+        {
+            float theory = ArenaSite.HeightAt(centre.x, centre.z) + Sink + Wall().Height * Rows;
+
+            Dictionary<ZDOID, ZDO> all = All();
+            if (all == null) return theory;
+
+            // This site's own ring, not a stray from a site the arena has since moved off.
+            float reach = ArenaSite.Radius + 8f;
+            float highest = float.MinValue;
+
+            foreach (ZDO zdo in Standing(all))
+            {
+                Vector3 p = zdo.GetPosition();
+                float dx = p.x - centre.x, dz = p.z - centre.z;
+                if (dx * dx + dz * dz > reach * reach) continue;
+
+                if (p.y > highest) highest = p.y;
+            }
+
+            return highest > float.MinValue ? highest + Wall().Height * 0.5f : theory;
+        }
 
         /// <summary>The ring's own pieces, wherever they are and whatever they are made of.</summary>
         private static List<ZDO> Standing(Dictionary<ZDOID, ZDO> all)
