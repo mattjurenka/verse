@@ -370,7 +370,7 @@ is empty", with no new game API at all.
 | `!arena join` (`ready`) | puts you in the next run. Refused, naming the slot, while you are wearing anything of your own |
 | `!arena start` (`go`) | begins it, with everybody who has joined. Anybody who has joined can call it, and nothing starts on a timer |
 | `!arena leave` | before a run starts, drops you out again; mid-run it counts as falling |
-| `!arena watch` (`spectate`, `back`) | takes you back to the venue after you have fallen, and only to the outside of it: the foot of the ladder, with the gallery above. It touches no run state, and the ring has no door, so "cannot re-enter" is the wall and the railing rather than a check. Spectators are kept Rested and, where the site freezes, given the kit mead's own frost resistance (`Potion_frostresist`, read off the item rather than named in the plugin) — the default site is the Deep North, where arriving from your bed with nothing is otherwise a death by weather |
+| `!arena watch` (`spectate`, `back`) | takes you back to the venue after you have fallen, and only to the outside of it: the bottom of the steps, with the gallery above. It touches no run state, and the ring has no door, so "cannot re-enter" is the wall and the railing rather than a check. Spectators are kept Rested and, where the site freezes, given the kit mead's own frost resistance (`Potion_frostresist`, read off the item rather than named in the plugin) — the default site is the Deep North, where arriving from your bed with nothing is otherwise a death by weather |
 | `!arena help` | the above, to you only |
 
 A run in progress does not admit latecomers; they wait for the next one. The result is
@@ -386,11 +386,10 @@ broadcast with `GlobalChat`, which already crosses verses.
 | `ArenaMinDistance` | *(biome default)* | how far from origin to start scanning |
 | `ArenaRadius` | `19.5` | metres, and the circle the wall is built on. Was 26 for the first live runs; a quarter smaller keeps a wave in one frame. **Lives in the server's own config file once written, so changing this default does not change a running server — edit `com.matthew.verse.cfg` too** |
 | `ArenaDeckPrefab` | `wood_floor` | the floor piece the deck under the gate chests is laid from; empty puts chests back on bare terrain |
-| `ArenaLevelGround` | `true` | flatten the venue's own ground before building on it, and pave the fighting floor, by writing the zone's terrain deltas from the server — see `Ground.cs` |
+| `ArenaLevelGround` | `true` | fill the hollows in the fighting floor, and pave what gets filled, by writing the zone's terrain deltas from the server — see `Ground.cs`. **Raise-only**: ground already above the fill line is left exactly as the seed made it. It levelled the whole venue flat once; that came back from the game as a disc of paving with a cliff round it |
 | `ArenaBoardwalk` / `ArenaBoardPrefab` | `true` / `wood_floor` | the ring of boards on the ground around the outside of the wall. Cosmetic, and where a spectator lands |
-| `ArenaGallery` | `true` | the walkway on top of the wall, its iron railing and the ladder up to it |
+| `ArenaGallery` | `true` | the walkway on top of the wall, its iron railing and the flight of steps up to it |
 | `ArenaRailPrefab` | `iron_wall_2x2` | vanilla's Cage Wall: iron bars, see-through and solid, which is the only reason a gallery over the floor is safe to offer |
-| `ArenaLadderPrefab` | `wood_stepladder` | stacked as high as the wall; how far one lifts is read off its own `Ladder.m_targetPos` |
 | `ArenaUnbreakable` | `true` | write an unreachable health into every fixture and the gate chests. Vanilla has no indestructible flag; health is a field on the ZDO, so this is a number the server owns |
 | `ArenaWaves` | `10` | |
 | `ArenaMultiplierCap` | `4.0` | |
@@ -420,7 +419,14 @@ Built, in `src/Verse`:
   the scenery sweep and the guard leave it alone, and deliberately *not* carrying the arena's
   own `verse.arena` marker, which `CleanupOrphans` deletes on sight. It reports the height of
   its *surface*, which is not where the tile is positioned: see `Footing.cs`.
-- **`Ground.cs`** — terrain edits written from the server, with no client involved. Every edit a
+- **`Ground.cs`** — terrain edits written from the server, with no client involved. Two
+  operations: `Level`, which flattens a circle, and `Fill`, which is what the arena uses — it
+  raises what is below a floor line and leaves everything at or above it exactly as the seed
+  made it. A fill is continuous with the terrain by construction (at a hollow's edge the two
+  are the same height) so it leaves no step anywhere, and the shape of the place survives;
+  levelling the arena flat instead produced a paved disc with a walkable cliff round it. Both
+  are absolute, and a fill clears anything it finds edited inside a wider radius, which is how
+  a venue that was levelled by the old scheme gets its plateau taken away again. Every edit a
   hoe has ever made to a zone is one gzipped byte array (`TCData`) on one `_TerrainCompiler`
   ZDO at the zone's centre, holding a height delta per vertex of its 65x65 grid; the server owns
   the object table, so the server can write it, and the client applies it in
@@ -442,12 +448,19 @@ Built, in `src/Verse`:
   wall's own measured outer face rather than at a written-down radius. The only purely cosmetic
   thing the arena builds, and also where `!arena watch` puts somebody down.
 - **`ArenaStand.cs`** — the gallery: a plank walkway on top of the wall, an iron cage railing
-  along its inner edge, and a ladder up the outside. The railing is the piece that matters — a
-  walkway over the floor with an open inner edge is a diving board, and a dead fighter dropping
-  back into the run is the thing being prevented. `wood_stepladder` turns out to be a lift
-  rather than a climb (`Ladder.Interact` moves the character to a `m_targetPos` on the prefab),
-  so the stack is spaced by that measured lift and the walkway is laid first, overhanging both
-  faces of the wall, to give the last step something to land on.
+  along its inner edge, and a flight of steps up the outside. The railing is the piece that
+  matters — a walkway over the floor with an open inner edge is a diving board, and a dead
+  fighter dropping back into the run is the thing being prevented. The way up was a ladder
+  until the game said otherwise: it went in as three stacked `wood_stepladder` and came back
+  "not actually climbable", and the reason is that **Valheim has no climbing** — nothing about
+  it in `Player` or `Character`, and the only `Ladder` component is a lift that teleports you
+  to a target transform, which that piece does not carry. So a wood ladder is climbed purely by
+  walking up its collider, which works only when it faces the right way, and which way that is
+  lives in a Unity scene the server cannot read. The steps are the same boards as the walkway,
+  0.4 m apart (well inside what a player walks up) and laid level, so there is no orientation
+  to get wrong — and "is this climbable" becomes arithmetic the self-test can check. Old note,
+  kept because it is the finding: a piece that does carry `Ladder` is a lift rather than a
+  climb, so a stack of those would be a staircase of key presses.
 - **`Footing.cs`** — how far a prefab reaches below and above its own origin, measured off its
   colliders (meshes as a fallback) and cached. A ZDO's position is the prefab's origin, and
   where that sits inside the object is per-prefab: `wood_floor`'s is 0.10 m under its walking
@@ -460,7 +473,7 @@ Built, in `src/Verse`:
   to the verse, kill detection, bounds and kit checks, the broadcast, and `CleanupOrphans`.
 - **`ArenaGuard.cs`** — the intruder rule, as a second postfix on the `CreateNewZDO` target
   `Authorship` already patches.
-- **`ArenaSelfTest.cs`** - 51 server-side asserts, in the style of `SelfTest.cs`. Run on a real
+- **`ArenaSelfTest.cs`** - 74 server-side asserts, in the style of `SelfTest.cs`. Run on a real
   dedicated server; it failed on its first run and found the `m_dropPrefab` bug. It now also
   lays a real deck on real ground 700 m from the site, stands a chest on it and measures the
   gap between the two, because the floating chests were the one arena bug that was invisible

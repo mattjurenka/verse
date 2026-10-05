@@ -110,17 +110,15 @@ namespace Verse
         /// How far the standing wall's average height may be from the ground's before it is
         /// rebuilt.
         ///
-        /// <para>Two numbers, because the question is a different one in each case. On levelled
-        /// ground every segment sits at the same height and the average has to match it closely:
-        /// the first live deploy kept a ring whose average was 1.22 m below where the new floor
-        /// wanted it, which left the wall sunk into the floor and - worse - the gallery built at
-        /// the height the wall <i>should</i> have reached, hanging over the stone that was
-        /// actually there. Without levelling the segments follow the terrain, so their average
-        /// is only roughly the height at the centre and a tight test would rebuild the ring on
-        /// every boot for no reason.</para>
+        /// <para>Tight, and it can be, because <see cref="ExpectedMeanY"/> works out what the
+        /// average should be with the same per-segment arithmetic <see cref="Raise"/> uses - so
+        /// the comparison holds on ground of any shape. It was briefly a loose 1.5 m instead,
+        /// against the height at the centre, and that let the first live deploy keep a ring
+        /// standing 1.22 m below where the floor had moved to: the wall sunk into the floor, and
+        /// the gallery laid at the height the wall <i>should</i> have reached, hanging over the
+        /// stone that was actually there.</para>
         /// </summary>
-        private static float HeightSlack =>
-            VersePlugin.ArenaLevelGround.Value ? 0.3f : 2.5f;
+        private const float HeightSlack = 0.3f;
 
         /// <summary>How wide the band is where the levelled ground eases back into the hillside.</summary>
         private const float LevelTaper = 8f;
@@ -279,8 +277,7 @@ namespace Verse
                 // The mean of Rows row-centres is the base plus half the stack, so this is where
                 // the pieces' average height should be for the ground as it is now.
                 float wasY = height / standing.Count;
-                float wantY = ArenaSite.HeightAt(centre.x, centre.z) + Sink +
-                              wall.Height * Rows * 0.5f;
+                float wantY = ExpectedMeanY(centre, wall, radius);
                 int wantPieces = Mathf.Max(8, Mathf.RoundToInt(2f * Mathf.PI * radius / wall.Width)) * Rows;
 
                 // Judged on the piece count and the material as well as the radius. Changing Rows
@@ -356,41 +353,95 @@ namespace Verse
         }
 
         /// <summary>
-        /// Flattens the site before anything is built on it, and paints the fighting floor.
+        /// How far below the floor's typical height a hollow is allowed to be before it is
+        /// filled in. Everything within this of the ordinary ground is left exactly as the seed
+        /// made it.
         ///
-        /// <para><b>This is what the ring's own history was asking for.</b> Two earlier builds
-        /// collapsed over uneven ground and the surviving design follows the terrain per
-        /// segment, with the chest decks hung level above whatever was under them - all of it
-        /// working around ground the server could not change. It can:
-        /// <see cref="Ground.Level"/> writes a zone's terrain deltas straight into its
-        /// compiler's ZDO. So the floor is made flat first, and the wall, the decks, the chests
-        /// and the boardwalk are all placed on a known height instead of a sampled one.</para>
+        /// <para>The number is the whole argument about what an arena floor should be. Levelling
+        /// the lot - which is what this did first - came back from the game as a disc of flat
+        /// paving with a cliff round the outside, and the ground it replaced was the reason to
+        /// fight there. A metre and a half of relief is a floor with shape to it; more than that
+        /// is a pit to fall into or a hill to stand on top of, and those are worth filling.</para>
+        /// </summary>
+        private const float MaxDip = 1.5f;
+
+        /// <summary>How far past the wall the fill reaches, so its footing is on solid ground.</summary>
+        private const float FillMargin = 2.5f;
+
+        /// <summary>
+        /// Fills the hollows in the fighting floor and leaves the rest of the ground alone.
         ///
-        /// <para>Level out past the gates, easing back into the hillside over the last few
-        /// metres so the venue is a plateau rather than a plinth, and the fighting floor painted
-        /// paved: <c>ClutterSystem</c> reads that as cleared ground and stops growing grass
-        /// through it, which is also why the floor no longer needs sweeping for berries.</para>
+        /// <para><b>What this used to do, and why it does not any more.</b> It levelled the
+        /// whole venue flat and paved it. In the game that was a disc of grey paving with a step
+        /// around the outside you could walk up, and the one thing nobody had asked for: the
+        /// ground gone. So the operation is now a fill - <see cref="Ground.Fill"/> raises what
+        /// is below the floor and touches nothing that is at or above it - and the arena keeps
+        /// the hillside it was built on. A filled hollow meets the natural ground with no step
+        /// anywhere, because at the hollow's edge the two are the same height.</para>
+        ///
+        /// <para>The floor's height is the ground's own typical height less
+        /// <see cref="MaxDip"/>, never below the water line, so the only things that change are
+        /// pits, ponds and the deep side of a slope. Those are painted paved, which is what the
+        /// flat stone base in a hollow should look like and also stops
+        /// <c>ClutterSystem</c> growing grass up through it; the rest of the floor keeps its own
+        /// turf.</para>
+        ///
+        /// <para>The clear radius is wider than the fill on purpose: it is how a venue that was
+        /// levelled by the old scheme gets its plateau taken away again, in the same pass, with
+        /// nobody having to remember it was there.</para>
         /// </summary>
         internal static int LevelSite(Vector3 centre)
         {
             if (!VersePlugin.ArenaLevelGround.Value) return 0;
 
-            float target = ArenaSite.HeightAt(centre.x, centre.z);
+            float floor = FloorHeight(centre);
 
-            // The whole venue first, with no paint: this is the pass that decides the height.
-            int moved = Ground.Level(centre, LevelReach + LevelTaper, target, LevelTaper);
-
-            // Then the floor inside the wall again, for the paint alone - same height, so every
-            // vertex it touches is already where this wants it.
-            moved += Ground.Level(centre, ArenaSite.Radius, target, 0f, Heightmap.m_paintMaskPaved);
+            // Out past the wall so its footing stands on the filled ground, and clearing as far
+            // as the old scheme ever levelled.
+            int moved = Ground.Fill(centre, ArenaSite.Radius + FillMargin, floor,
+                                    LevelReach + LevelTaper, Heightmap.m_paintMaskPaved);
 
             if (moved > 0)
                 VersePlugin.Log.LogInfo(
-                    $"arena: levelled the site to {target:0.00} m - flat out to {LevelReach:0} m, " +
-                    $"easing back over the next {LevelTaper:0} m, floor paved inside " +
-                    $"{ArenaSite.Radius:0} m");
+                    $"arena: the floor's hollows are filled to {floor:0.00} m inside " +
+                    $"{ArenaSite.Radius + FillMargin:0} m - everything already above that is the " +
+                    "ground the seed made");
 
             return moved;
+        }
+
+        /// <summary>
+        /// The height the floor's hollows are filled to: the middle of the ground inside the
+        /// ring, less the relief that is worth keeping, and never below the water line.
+        ///
+        /// <para>The median rather than the mean, and rather than the height at the centre:
+        /// both of those are dragged about by the very pit the fill is meant to deal with, and
+        /// a floor height chosen by the deepest part of the floor fills in the whole thing.
+        /// Measured against <see cref="Ground.Blended"/> - the ground the seed describes - so
+        /// the answer does not drift every time this runs over its own fill.</para>
+        /// </summary>
+        private static float FloorHeight(Vector3 centre)
+        {
+            var heights = new List<float>();
+
+            for (int ring = 0; ring <= 6; ring++)
+            {
+                float rr = ArenaSite.Radius * ring / 6f;
+                int spokes = ring == 0 ? 1 : 8 * ring;
+
+                for (int s = 0; s < spokes; s++)
+                {
+                    float a = s * 2f * Mathf.PI / spokes;
+                    heights.Add(Ground.Blended(centre.x + Mathf.Cos(a) * rr,
+                                               centre.z + Mathf.Sin(a) * rr));
+                }
+            }
+
+            heights.Sort();
+            float median = heights[heights.Count / 2];
+
+            float water = ZoneSystem.instance != null ? ZoneSystem.instance.m_waterLevel : 30f;
+            return Mathf.Max(median - MaxDip, water + 1f);
         }
 
         /// <summary>
@@ -420,8 +471,69 @@ namespace Verse
         /// metres over the rest of the ring. The same formula the wall was built from, asked at
         /// the point in question, is the one answer that follows it.</para>
         /// </summary>
-        internal static float WallTopY(Vector3 at) =>
-            ArenaSite.HeightAt(at.x, at.z) + Sink + Wall().Height * Rows;
+        internal static float WallTopY(Vector3 at)
+        {
+            Vector3 centre = ArenaSite.Centre;
+            float angle = Mathf.Atan2(at.z - centre.z, at.x - centre.x);
+
+            // Projected onto the wall's own circle and measured the way Raise measures - the
+            // lowest ground under the segment, not the ground where the caller happened to ask.
+            // Anything else and the gallery is laid at a height the wall was never built to.
+            float x = centre.x + Mathf.Cos(angle) * ArenaSite.Radius;
+            float z = centre.z + Mathf.Sin(angle) * ArenaSite.Radius;
+
+            return Lowest(x, z, angle, Wall()) + Sink + Wall().Height * Rows;
+        }
+
+        /// <summary>
+        /// Where the average standing wall piece should be, for the ground as it is now: the
+        /// same per-segment arithmetic <see cref="Raise"/> uses, averaged.
+        ///
+        /// <para>Used to decide whether a ring that is already up still belongs where it is.
+        /// Computed rather than taken from the height at the centre, because the segments are
+        /// placed from their own ground and a site is not flat - with the floor a fill rather
+        /// than a level, it is not even nearly flat.</para>
+        /// </summary>
+        private static float ExpectedMeanY(Vector3 centre, WallKind wall, float radius)
+        {
+            int segments = Mathf.Max(8, Mathf.RoundToInt(2f * Mathf.PI * radius / wall.Width));
+            float sum = 0f;
+
+            for (int i = 0; i < segments; i++)
+            {
+                float angle = i * 2f * Mathf.PI / segments;
+                sum += Lowest(centre.x + Mathf.Cos(angle) * radius,
+                              centre.z + Mathf.Sin(angle) * radius, angle, wall);
+            }
+
+            return sum / segments + Sink + wall.Height * Rows * 0.5f;
+        }
+
+        /// <summary>
+        /// The lowest ground under one wall segment's footprint: its own position, a metre
+        /// outside and inside it, and both ends of the span it covers. Six samples, which is
+        /// enough to notice a slope and cheap enough to do per segment.
+        /// </summary>
+        private static float Lowest(float x, float z, float angle, WallKind wall)
+        {
+            var outward = new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle));
+            Vector3 along = Vector3.Cross(Vector3.up, outward) * (wall.Width * 0.5f);
+
+            float lowest = float.MaxValue;
+
+            foreach (Vector3 probe in new[]
+                     {
+                         new Vector3(x, 0f, z),
+                         new Vector3(x, 0f, z) + outward,
+                         new Vector3(x, 0f, z) - outward,
+                         new Vector3(x, 0f, z) + along,
+                         new Vector3(x, 0f, z) - along,
+                         new Vector3(x, 0f, z) + along + outward,
+                     })
+                lowest = Mathf.Min(lowest, ArenaSite.HeightAt(probe.x, probe.z));
+
+            return lowest;
+        }
 
         /// <summary>Whether a ZDO is any of the arena's own permanent furniture.</summary>
         internal static bool IsFixture(ZDO zdo) =>
@@ -503,7 +615,16 @@ namespace Verse
                     var facing = Quaternion.LookRotation(
                         new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle)));
 
-                    float ground = ArenaSite.HeightAt(x, z);
+                    // The lowest ground this segment spans, not the ground on the circle.
+                    //
+                    // The first live run of the venue had a gap under the wall you could run
+                    // through: where the hillside falls away outside the ring, the ground at the
+                    // wall's own line is a metre or two above the ground a step outside it, and
+                    // a bottom row buried relative to the former hangs in the air over the
+                    // latter. Taking the minimum over the segment's own footprint - both faces
+                    // and both ends - buries it against whichever side is lowest, which is the
+                    // only version of "buried" that holds on a slope.
+                    float ground = Lowest(x, z, angle, wall);
 
                     for (int row = 0; row < Rows; row++)
                     {

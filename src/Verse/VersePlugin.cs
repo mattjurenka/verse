@@ -76,7 +76,6 @@ namespace Verse
         internal static ConfigEntry<string> ArenaBoardPrefab;
         internal static ConfigEntry<bool> ArenaGallery;
         internal static ConfigEntry<string> ArenaRailPrefab;
-        internal static ConfigEntry<string> ArenaLadderPrefab;
         internal static ConfigEntry<bool> ArenaUnbreakable;
         internal static ConfigEntry<bool> ArenaEnforceKit;
         internal static ConfigEntry<bool> ArenaTrace;
@@ -372,9 +371,6 @@ namespace Verse
                 "The railing piece - vanilla's Cage Wall 2x2, which is iron bars you can see " +
                 "through and cannot walk through. Any 2 m x 2 m wall piece works; its real " +
                 "size is measured off the prefab.");
-            ArenaLadderPrefab = Config.Bind("Arena", "ArenaLadderPrefab", "wood_stepladder",
-                "The ladder piece, stacked as many times as it takes to reach the top of the " +
-                "wall. Its height is measured off the prefab rather than assumed.");
             ArenaUnbreakable = Config.Bind("Arena", "ArenaUnbreakable", true,
                 "Write an unreachable amount of health into everything the arena builds - the " +
                 "wall, the decks, the boardwalk, the gallery and the gate chests. Vanilla has " +

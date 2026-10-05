@@ -244,7 +244,7 @@ namespace Verse
             $"{Word} join    puts you in the next run. Do it once you have the kit on and your own things in your chest.",
             $"{Word} start   begins it, with everybody who has joined. Anyone who has joined can call it.",
             $"{Word} leave   drops you out again, before it starts.",
-            $"{Word} watch   takes you back to the arena after you have fallen. Up the ladder is a gallery with a view of the floor; you cannot get back onto it.",
+            $"{Word} watch   takes you back to the arena after you have fallen. Up the steps is a gallery with a view of the floor; you cannot get back onto it.",
             "WARNING: anything you carry in can be lost for good - your corpse is cleared away when a run starts. Use the chest with your name on it.",
             "Leaving the ring, or wearing anything that is not the kit, ends your run. The kit is yours to keep.",
         };
@@ -543,7 +543,7 @@ namespace Verse
         /// is in a chest at a gate kilometres from anywhere, and <c>enter</c> refuses while a
         /// run is under way - which it has to, because a dead fighter rejoining the fight they
         /// just lost is not a fight. So the way back is its own word, and it goes to the
-        /// outside: the foot of the ladder on the boardwalk, with the gallery above it. Nothing
+        /// outside: the bottom of the steps on the boardwalk, with the gallery above it. Nothing
         /// here puts anybody in a run, marks anybody ready, or so much as looks at the run
         /// table.</para>
         ///
@@ -581,13 +581,13 @@ namespace Verse
                 VerseIdentity.SayTo(peer, "There is no gallery at the arena - taking you to the gate.");
             }
 
-            Teleport(peer, ArenaStand.LadderFoot(centre));
+            Teleport(peer, ArenaStand.StairFoot(centre));
             Rest(peer);
             Warm(peer);
 
             VerseIdentity.SayTo(peer, VersePlugin.ArenaGallery.Value
-                ? "Outside the wall, at the foot of the ladder. Use it to climb to the gallery - " +
-                  "you can watch through the railing, but you cannot get back in."
+                ? "Outside the wall, at the bottom of the steps. Walk up to the gallery - you " +
+                  "can watch through the railing, but you cannot get back in."
                 : "Outside the wall. Your things are in the chest with your name on it.");
         }
 

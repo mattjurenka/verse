@@ -113,6 +113,27 @@ vertices levelled, the payload re-read cold off the ZDO at the height it was giv
 **Not yet verified with a client in the world** — only a player standing there proves the mesh
 moves.
 
+### Valheim has no climbing, so "put a ladder on it" does not work
+
+Looked for it after the arena's ladder came back from the game as "not actually climbable":
+there is no climb code in `Player` or `Character` at all, and the only `Ladder` component in
+`assembly_valheim` is a **lift** — `Ladder.Interact` moves the character to a `m_targetPos`
+transform on the prefab. `wood_stepladder` does not carry one, so a wood ladder is climbed
+purely by walking up its collider: it works only when it faces the right way, and that facing
+is a decision in a Unity scene the server cannot read. Anything the server builds that people
+have to get up should be **steps** instead — level tiles, ≤0.4 m apart, which a player walks up
+without jumping and which have no orientation to get wrong. `ArenaStand.Stair` does that with
+the same `wood_floor` boards as the rest of the venue.
+
+### Terrain: fill hollows, do not level
+
+First version levelled the arena floor flat and paved it, which in the game was a grey disc
+with a cliff round the outside you could walk up. `Ground.Fill` is raise-only: it lifts ground
+below a floor line and leaves everything above it alone, so the natural shape survives and
+there is no step anywhere (at a hollow's edge the filled surface and the ground are the same
+height). The floor line is the median ground inside the ring less 1.5 m, never below the water
+level. Paint only goes on what was filled.
+
 ### Pieces the arena builds are now unbreakable
 
 `Fixture.cs` writes `1e9` into `ZDOVars.s_health` on every piece it places (wall, decks,

@@ -280,18 +280,60 @@ namespace Verse
         /// </param>
         /// <returns>How many vertices were moved. Zero means nothing could be written.</returns>
         internal static int Level(Vector3 at, float radius, float targetY, float taper = 6f,
-                                  Color? paint = null)
+                                  Color? paint = null) =>
+            Shape(at, radius, radius, targetY, taper, paint, raiseOnly: false);
+
+        /// <summary>
+        /// Fills the hollows inside <paramref name="radius"/> up to <paramref name="floorY"/> and
+        /// leaves everything already at or above it exactly as the seed made it. Anything
+        /// previously edited out to <paramref name="clearRadius"/> and not needed by this fill is
+        /// put back to the seed's own ground.
+        ///
+        /// <para><b>Raise-only, which is the whole point.</b> A level makes a floor and a
+        /// plateau: the ground is the same height everywhere inside the radius, there is a step
+        /// at the rim, and the natural shape of the place is gone - the first live arena came
+        /// back as a disc of flat paving with a cliff round it. A fill is continuous with the
+        /// terrain by construction: at the edge of a hollow the ground is already at
+        /// <paramref name="floorY"/>, so the filled surface meets it with no step anywhere, and
+        /// every hill, bump and slope above the floor survives untouched. What it buys is the
+        /// thing a floor was wanted for - no pits in the fighting ground, and nothing below the
+        /// water line.</para>
+        ///
+        /// <para>The wider <paramref name="clearRadius"/> is how a venue migrates: it undoes a
+        /// plateau left by an earlier scheme in the same pass that fills the hollows, and it
+        /// makes the whole operation absolute, so running it twice is running it once. It does
+        /// mean this owns the terrain in that circle - a player's own digging inside it would be
+        /// undone - which is true of the arena's ground and of nowhere else.</para>
+        /// </summary>
+        internal static int Fill(Vector3 at, float radius, float floorY, float clearRadius,
+                                 Color? paint = null) =>
+            Shape(at, radius, Mathf.Max(radius, clearRadius), floorY, 0f, paint, raiseOnly: true);
+
+        /// <summary>
+        /// The one pass that writes terrain: walks every vertex within
+        /// <paramref name="clearRadius"/>, decides what its delta should be, and writes the
+        /// zones it changed.
+        /// </summary>
+        /// <param name="raiseOnly">
+        /// True to fill up to <paramref name="targetY"/> and leave higher ground alone; false to
+        /// level everything to it.
+        /// </param>
+        private static int Shape(Vector3 at, float radius, float clearRadius, float targetY,
+                                 float taper, Color? paint, bool raiseOnly)
         {
             if (!Geometry()) return 0;
             if (ZDOMan.instance == null || WorldGenerator.instance == null) return 0;
             if (radius <= 0f) return 0;
 
             int moved = 0;
+            int cleared = 0;
             int clamped = 0;
             float flat = Mathf.Max(0f, radius - Mathf.Max(0f, taper));
 
-            Vector2s low = ZoneSystem.GetZone(new Vector3(at.x - radius, 0f, at.z - radius));
-            Vector2s high = ZoneSystem.GetZone(new Vector3(at.x + radius, 0f, at.z + radius));
+            Vector2s low = ZoneSystem.GetZone(
+                new Vector3(at.x - clearRadius, 0f, at.z - clearRadius));
+            Vector2s high = ZoneSystem.GetZone(
+                new Vector3(at.x + clearRadius, 0f, at.z + clearRadius));
 
             for (int zx = low.x; zx <= high.x; zx++)
             {
@@ -303,9 +345,13 @@ namespace Verse
                     // bounding box, and a corner zone of that box can be entirely outside the
                     // circle - creating a compiler there would leave an empty one behind, which
                     // is an object every client in range instantiates for nothing.
-                    if (!Reaches(zone, at, radius)) continue;
+                    if (!Reaches(zone, at, clearRadius)) continue;
 
-                    Patch patch = Open(zone, create: true);
+                    // Only zones this might actually write to get a compiler of their own; a
+                    // zone that is merely inside the clearing ring and has never been edited has
+                    // nothing to clear.
+                    bool fills = Reaches(zone, at, radius);
+                    Patch patch = Open(zone, create: fills);
                     if (patch == null || patch.Unreadable) continue;
 
                     float[] generated = Generated(patch);
@@ -323,10 +369,29 @@ namespace Verse
 
                             float dx = wx - at.x, dz = wz - at.z;
                             float d = Mathf.Sqrt(dx * dx + dz * dz);
-                            if (d > radius) continue;
+                            if (d > clearRadius) continue;
 
                             int v = iy * _pitch + ix;
                             float ground = generated[v];
+
+                            // Outside what is being shaped, or above the floor a fill is filling
+                            // to: this vertex is meant to be the seed's own ground. Cleared
+                            // rather than skipped, which is what makes the operation absolute -
+                            // it undoes an earlier shaping of the same ground without anybody
+                            // having to remember what shape it was.
+                            if (d > radius || (raiseOnly && ground >= targetY - 0.001f))
+                            {
+                                if (!patch.Modified[v] && !patch.Painted[v]) continue;
+
+                                patch.Modified[v] = false;
+                                patch.Level[v] = 0f;
+                                patch.Smooth[v] = 0f;
+                                patch.Painted[v] = false;
+
+                                touched = true;
+                                cleared++;
+                                continue;
+                            }
 
                             // Full strength inside the flat part, easing out to nothing at the
                             // rim. Without this a levelled arena stands on a 2 m step all the
@@ -376,15 +441,31 @@ namespace Verse
                     patch.Operations++;
                     patch.LastPoint = at;
                     patch.LastRadius = radius;
+
+                    // A zone with nothing edited on it any more does not need a compiler, and a
+                    // compiler is an object every client in range instantiates. Written first
+                    // either way, because DestroyZDO only queues the id and the object stays
+                    // readable until the next ZDOMan update.
                     Write(patch);
+
+                    if (Empty(patch))
+                    {
+                        Fixture.Destroy(patch.Zdo);
+                        Patches.Remove(Key(zone));
+
+                        VersePlugin.Log.LogInfo(
+                            $"terrain: zone {zone.x}, {zone.y} is back to the seed's own ground - " +
+                            $"removed its {_compilerName}");
+                    }
                 }
             }
 
-            if (moved > 0)
+            if (moved > 0 || cleared > 0)
                 VersePlugin.Log.LogInfo(
-                    $"terrain: levelled {moved} vertex/vertices to {targetY:0.00} m within " +
-                    $"{radius:0.#} m of {at.x:0}, {at.z:0}" +
-                    (paint.HasValue ? ", and painted the ground" : ""));
+                    $"terrain: {(raiseOnly ? "filled" : "levelled")} {moved} vertex/vertices to " +
+                    $"{targetY:0.00} m within {radius:0.#} m of {at.x:0}, {at.z:0}" +
+                    (paint.HasValue ? ", painted" : "") +
+                    (cleared > 0 ? $", and put {cleared} back to the seed's own ground" : ""));
 
             if (clamped > 0)
                 VersePlugin.Log.LogWarning(
@@ -436,6 +517,15 @@ namespace Verse
             float h11 = Final(patch, heights, (iz + 1) * _pitch + ix + 1);
 
             return Mathf.Lerp(Mathf.Lerp(h00, h10, tx), Mathf.Lerp(h01, h11, tx), tz);
+        }
+
+        /// <summary>Whether a zone has nothing edited on it at all any more.</summary>
+        private static bool Empty(Patch patch)
+        {
+            for (int v = 0; v < _vertices; v++)
+                if (patch.Modified[v] || patch.Painted[v]) return false;
+
+            return true;
         }
 
         /// <summary>Whether a vertex is already painted this colour.</summary>

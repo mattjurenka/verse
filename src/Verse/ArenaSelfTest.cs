@@ -594,38 +594,65 @@ namespace Verse
 
             if (VersePlugin.ArenaLevelGround.Value)
             {
-                // Twelve points at the wall, and the invariant is not "all the same height":
-                // vanilla refuses to move a vertex more than 8 m from the ground the seed
-                // describes, so on a steep site some of the floor cannot be reached. What must
-                // hold is that every point is either at the floor's height or pinned at that
-                // ceiling - anything else is a levelling bug rather than a steep hill. The
-                // terrain writer logs a warning of its own when it hits the ceiling.
-                float floor = ArenaSite.HeightAt(centre.x, centre.z);
-                float worst = 0f;
-                int pinned = 0;
+                // The floor is a fill now, not a level, so "is it flat" is the wrong question -
+                // flat was the complaint. Two things have to hold instead, and they are the two
+                // halves of what a fill promises: nothing is left in a hollow, and nothing that
+                // was already high enough has been touched. The second is what keeps the ground
+                // the ground.
+                //
+                // Vanilla will not move a vertex more than 8 m from the seed's own height, so a
+                // hollow deeper than that stays a hollow; those points are counted separately
+                // rather than failed, and Ground.Level logs a warning of its own when it
+                // happens.
+                float lowest = float.MaxValue, deepest = 0f;
+                int raised = 0, kept = 0, pinned = 0;
 
-                for (int i = 0; i < 12; i++)
+                for (int ring = 1; ring <= 4; ring++)
                 {
-                    float a = i * Mathf.PI * 2f / 12f;
-                    float x = centre.x + Mathf.Cos(a) * (ArenaSite.Radius - 1f);
-                    float z = centre.z + Mathf.Sin(a) * (ArenaSite.Radius - 1f);
-
-                    float here = ArenaSite.HeightAt(x, z);
-                    float off = Mathf.Abs(here - floor);
-
-                    if (off > 0.1f && Mathf.Abs(here - Ground.Blended(x, z)) > 7.9f)
+                    for (int i = 0; i < 12; i++)
                     {
-                        pinned++;
-                        continue;
-                    }
+                        float a = i * Mathf.PI * 2f / 12f + ring * 0.13f;
+                        float r = (ArenaSite.Radius - 1f) * ring / 4f;
+                        float x = centre.x + Mathf.Cos(a) * r;
+                        float z = centre.z + Mathf.Sin(a) * r;
 
-                    worst = Mathf.Max(worst, off);
+                        float here = ArenaSite.HeightAt(x, z);
+                        float seed = Ground.Blended(x, z);
+
+                        lowest = Mathf.Min(lowest, here);
+                        if (here - seed > 0.01f) { raised++; deepest = Mathf.Max(deepest, here - seed); }
+                        else kept++;
+
+                        if (here - seed > 7.9f) pinned++;
+                    }
                 }
 
-                Check($"the fighting floor is as level as vanilla allows ({worst:0.00} m of " +
-                      $"spread at the wall" +
-                      (pinned > 0 ? $", with {pinned} of 12 points pinned at the 8 m ceiling)" : ")"),
-                      worst < 0.1f);
+                Check($"the floor keeps the ground it was given ({kept} of {kept + raised} " +
+                      $"points untouched, {raised} filled, deepest fill {deepest:0.00} m)",
+                      kept > 0);
+
+                // A fill has no rim to walk up: at the edge of a hollow the filled surface and
+                // the natural ground are the same height, so there is no step anywhere. This is
+                // the check for the cliff the levelled version left round the outside.
+                float worstRim = 0f;
+                for (int i = 0; i < 24; i++)
+                {
+                    float a = i * Mathf.PI * 2f / 24f;
+                    float inner = ArenaSite.HeightAt(centre.x + Mathf.Cos(a) * (ArenaSite.Radius + 3f),
+                                                     centre.z + Mathf.Sin(a) * (ArenaSite.Radius + 3f));
+                    float outer = ArenaSite.HeightAt(centre.x + Mathf.Cos(a) * (ArenaSite.Radius + 4f),
+                                                     centre.z + Mathf.Sin(a) * (ArenaSite.Radius + 4f));
+
+                    worstRim = Mathf.Max(worstRim, Mathf.Abs(inner - outer));
+                }
+
+                Check($"and leaves no step at its edge for anybody to walk up " +
+                      $"({worstRim:0.00} m over the metre outside the fill)", worstRim < 1f);
+
+                if (pinned > 0)
+                    VersePlugin.Log.LogInfo(
+                        $"arena: {pinned} sampled point(s) of floor are still more than 8 m " +
+                        "below the fill line, which is vanilla's ceiling and not ours");
             }
 
             if (VersePlugin.ArenaBoardwalk.Value)
@@ -651,18 +678,23 @@ namespace Verse
 
             // The wall's top on the ladder's own bearing, which is the walkway the ladder has to
             // reach - not the nominal height at the middle of the arena, where there is no wall.
-            float top = ArenaRing.WallTopY(ArenaStand.LadderFoot(centre));
+            float top = ArenaRing.WallTopY(ArenaStand.StairFoot(centre));
 
             int rails = 0;
             int railHash = (VersePlugin.ArenaRailPrefab.Value ?? "").Trim().GetStableHashCode();
-            int ladderHash = (VersePlugin.ArenaLadderPrefab.Value ?? "").Trim().GetStableHashCode();
-            float highestLadder = float.MinValue;
+            int boardHash = (VersePlugin.ArenaBoardPrefab.Value ?? "").Trim().GetStableHashCode();
+
+            // The stair is made of the same boards as the walkway and carries its own marker,
+            // which is the only reliable way to tell them apart - an earlier version of this
+            // went by height and counted 164 steps in a ten-step stair.
+            var climb = new List<Vector3>();
 
             foreach (ZDO piece in gallery)
             {
                 if (piece.GetPrefab() == railHash) rails++;
-                if (piece.GetPrefab() == ladderHash)
-                    highestLadder = Mathf.Max(highestLadder, piece.GetPosition().y);
+                if (piece.GetPrefab() != boardHash) continue;
+
+                if (ArenaStand.IsStep(piece)) climb.Add(piece.GetPosition());
             }
 
             Check($"{rails} piece(s) of railing stand along the inside of its top", rails > 0);
@@ -675,13 +707,38 @@ namespace Verse
                       : "the railing could be measured",
                   measured && rail.size.y > 1.5f);
 
-            Check($"the ladder reaches the walkway (top rung at {highestLadder:0.0} m, walkway " +
-                  $"at {top:0.0} m)",
-                  highestLadder > float.MinValue && highestLadder >= top - 2.5f);
+            // The way up, and the one number that decides whether it is a way up at all: a step
+            // a player cannot walk over is a wall. The ladder this replaced failed in the game
+            // for want of exactly this check - and it could not have had one, because whether a
+            // ladder is climbable is a fact about a collider in a Unity scene, while whether a
+            // step is walkable is arithmetic.
+            climb.Sort((a, b) => a.y.CompareTo(b.y));
+
+            float worstStep = 0f;
+            for (int i = 1; i < climb.Count; i++)
+                worstStep = Mathf.Max(worstStep, climb[i].y - climb[i - 1].y);
+
+            Check($"a stair of {climb.Count} step(s) climbs to the gallery", climb.Count >= 2);
+            Check($"and no step is taller than a player walks up ({worstStep:0.00} m at worst)",
+                  climb.Count >= 2 && worstStep <= 0.5f);
+
+            // Against the walkway above the top step itself, not the walkway where the stair
+            // started: the flight sweeps around the ring as it climbs and the wall's top follows
+            // the ground, so those are two different heights. Measuring the wrong one is what
+            // made this check fail on a stair that was in fact meeting the walkway.
+            if (climb.Count >= 2)
+            {
+                Vector3 last = climb[climb.Count - 1];
+                float board = Footing.Box(boardHash, out Bounds plank) ? plank.max.y : 0f;
+                float meets = ArenaRing.WallTopY(last) + 0.02f;
+
+                Check($"and the top step meets the walkway above it ({last.y + board:0.00} m vs " +
+                      $"{meets:0.00} m)", Mathf.Abs(last.y + board - meets) < 0.5f);
+            }
 
             // Where watch() puts a spectator: outside the wall, inside the cleared venue, and
             // never on the fighting floor.
-            Vector3 foot = ArenaStand.LadderFoot(centre);
+            Vector3 foot = ArenaStand.StairFoot(centre);
             Check("a spectator lands outside the ring", !ArenaSite.Inside(foot));
             Check("and still inside the cleared venue", Arena.InClearing(foot));
 

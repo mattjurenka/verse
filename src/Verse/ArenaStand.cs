@@ -6,13 +6,13 @@ namespace Verse
 {
     /// <summary>
     /// The gallery: a plank walkway along the top of the wall, an iron cage railing on its inner
-    /// edge, and a ladder up the outside to reach it.
+    /// edge, and a flight of steps up the outside to reach it.
     ///
     /// <para><b>What it is for.</b> A fighter who dies is out of the run, and until now that
     /// meant being out of the evening: their body is cleared, their gear is in their chest and
     /// their friends are still inside a sealed stone circle they cannot see into. So the arena
     /// gets somewhere to stand and watch. <see cref="Arena"/>'s <c>watch</c> brings a dead
-    /// player back to the venue, the ladder takes them up, and the gallery is a seat with a view
+    /// player back to the venue, the steps take them up, and the gallery is a seat with a view
     /// of the floor.</para>
     ///
     /// <para><b>And the railing is what makes it a seat rather than a way in.</b> A walkway on
@@ -23,30 +23,30 @@ namespace Verse
     /// re-entry at the same time. That is the one thing the piece had to do, and it is why the
     /// railing is iron and not another course of stone.</para>
     ///
-    /// <para><b>The ladder is measured, because the game has two kinds.</b> Vanilla's
-    /// <c>Ladder</c> component does not animate a climb at all - <c>Ladder.Interact</c> moves
-    /// the character to a <c>m_targetPos</c> transform on the prefab, so a piece carrying one is
-    /// a lift and a stack of them is a staircase of presses. <c>wood_stepladder</c>, which is
-    /// what this uses, turns out not to carry one on this server: it is climbed by walking into
-    /// it, and a flush stack is simply one tall ladder. So the spacing comes from
-    /// <c>m_targetPos</c> when there is one and from the piece's own height when there is not,
-    /// and both end up at the same place - which is the whole reason for measuring rather than
-    /// writing 2 m in this file.</para>
-    ///
-    /// <para><b>And there is a landing at the top, which is not decoration.</b> The ladder
-    /// leans against the outside of the wall, so its top is a little further out than the
-    /// walkway's outer edge, and whether a lift's target leans in or out from there is a
-    /// decision somebody made in the Unity editor. Three boards at the ladder's own radius and
-    /// the walkway's own height overlap the walkway and reach past the ladder, so the last step
-    /// lands on planks either way.</para>
+    /// <para><b>The way up is steps, and it was a ladder until the game said otherwise.</b>
+    /// Three stacked <c>wood_stepladder</c> went in and came back "not actually climbable".
+    /// Valheim has no climbing: there is nothing about it in <c>Player</c> or <c>Character</c>,
+    /// and the only <c>Ladder</c> component is a lift that teleports whoever uses it to a
+    /// target transform - which the piece used here does not have. A wood ladder is therefore
+    /// climbed by walking up its collider, so it works only when it is the right way round, and
+    /// which way round that is lives in a Unity scene this server cannot read. See
+    /// <see cref="Stair"/>: the same boards as the walkway, in steps a player walks up, laid
+    /// level so there is no orientation to get wrong.</para>
     ///
     /// <para>Shared, untagged, marked <c>verse.arena.stand</c> and unbreakable, like every other
     /// fixture - see <see cref="Fixture"/>.</para>
     /// </summary>
     internal static class ArenaStand
     {
-        /// <summary>Marks a piece as part of the gallery: walkway, railing or ladder.</summary>
+        /// <summary>Marks a piece as part of the gallery: walkway, railing or step.</summary>
         private static readonly int StandPiece = "verse.arena.stand".GetStableHashCode();
+
+        /// <summary>
+        /// Marks one of the stair boards in particular. The stair is made of the same prefab as
+        /// the walkway, so without this the two can only be told apart by guessing at heights -
+        /// which the self-test duly got wrong, counting 164 steps in a ten-step stair.
+        /// </summary>
+        private static readonly int StepPiece = "verse.arena.step".GetStableHashCode();
 
         /// <summary>How far the walkway's surface sits above the stone it is laid on.</summary>
         private const float Lift = 0.02f;
@@ -54,8 +54,8 @@ namespace Verse
         /// <summary>How far the built radius may drift before the gallery is relaid.</summary>
         private const float Slack = 1f;
 
-        /// <summary>Which way round the ring the ladder stands, in radians.</summary>
-        private const float LadderBearing = 0f;
+        /// <summary>Which way round the ring the stair starts, in radians.</summary>
+        private const float StairBearing = 0f;
 
         private static System.Reflection.FieldInfo _byId;
         private static bool _built;
@@ -67,6 +67,9 @@ namespace Verse
         }
 
         internal static bool IsStand(ZDO zdo) => zdo != null && zdo.GetInt(StandPiece, 0) == 1;
+
+        /// <summary>Whether a ZDO is one of the stair boards.</summary>
+        internal static bool IsStep(ZDO zdo) => zdo != null && zdo.GetInt(StepPiece, 0) == 1;
 
         /// <summary>The gallery's own pieces, wherever they are.</summary>
         internal static List<ZDO> Standing()
@@ -83,13 +86,13 @@ namespace Verse
         }
 
         /// <summary>
-        /// Where a spectator is put down: the foot of the ladder, on the boardwalk outside the
-        /// wall. Deliberately not the gallery itself - the climb is three presses of the use
-        /// key and it tells them where the way up is.
+        /// Where a spectator is put down: the bottom of the steps, on the boardwalk outside the
+        /// wall. Deliberately not the gallery itself - walking up tells them where the way up
+        /// is, and lands them looking at the venue rather than at the floor.
         /// </summary>
-        internal static Vector3 LadderFoot(Vector3 centre)
+        internal static Vector3 StairFoot(Vector3 centre)
         {
-            var outward = new Vector3(Mathf.Cos(LadderBearing), 0f, Mathf.Sin(LadderBearing));
+            var outward = new Vector3(Mathf.Cos(StairBearing), 0f, Mathf.Sin(StairBearing));
             float radius = ArenaSite.Radius + ArenaRing.WallThickness * 0.5f + 2f;
 
             float x = centre.x + outward.x * radius;
@@ -111,7 +114,6 @@ namespace Verse
 
             string deckName = VersePlugin.ArenaBoardPrefab.Value?.Trim() ?? "";
             string railName = VersePlugin.ArenaRailPrefab.Value?.Trim() ?? "";
-            string ladderName = VersePlugin.ArenaLadderPrefab.Value?.Trim() ?? "";
 
             if (deckName.Length == 0 || railName.Length == 0)
             {
@@ -167,18 +169,25 @@ namespace Verse
                 // lesson is the same one Footing exists for - a piece's position is not its
                 // surface, so compare like with like.
                 int boards = 0;
+                int steps = 0;
                 float walkway = float.MinValue;
 
                 foreach (ZDO zdo in standing)
                 {
                     if (zdo.GetPrefab() != deckHash) continue;
 
+                    // The stair is made of these boards too, and carries its own marker so the
+                    // two cannot be confused.
+                    if (IsStep(zdo)) { steps++; continue; }
+
                     boards++;
                     walkway = Mathf.Max(walkway, zdo.GetPosition().y + deck.max.y);
                 }
 
-                // Highest against highest, because the walkway is no longer one height.
-                if (boards >= decks && Mathf.Abs(walkway - highest) < Slack)
+                // The stair counts as well as the walkway: a gallery with no way up is not a
+                // gallery, and this is also how the ladder that was built before the stair
+                // existed gets replaced rather than left standing beside it.
+                if (boards >= decks && steps >= 2 && Mathf.Abs(walkway - highest) < Slack)
                 {
                     _built = true;
                     VersePlugin.Log.LogInfo(
@@ -232,125 +241,106 @@ namespace Verse
                 made++;
             }
 
-            made += Climb(centre, ladderName, deckHash, deck);
+            made += Stair(centre, deckHash, deck);
 
             _built = made > 0;
 
             VersePlugin.Log.LogInfo(
                 $"arena: built the gallery - {decks} board(s) of walkway on top of the wall, " +
                 $"topping out at {highest:0.0} m, {rails} piece(s) of {railName} railing at " +
-                $"{railRadius:0.0} m, and a ladder up the outside");
+                $"{railRadius:0.0} m, and a stair up the outside");
 
             return made;
         }
 
         /// <summary>
-        /// Stacks ladder pieces from the ground to the walkway.
+        /// A flight of steps from the boardwalk up to the walkway, sweeping around the outside of
+        /// the wall.
         ///
-        /// <para>How far one piece lifts a player comes from the prefab's own
-        /// <c>m_targetPos</c>, which is where <c>Ladder.Interact</c> puts them. Its height is
-        /// not the piece's height and need not be: what matters is that each step lands on the
-        /// next piece, so the stack is spaced by the lift and not by the model.</para>
+        /// <para><b>This was a ladder, and the ladder did not work.</b> It went into the game as
+        /// three stacked <c>wood_stepladder</c> and came back "not actually climbable". The
+        /// reason is in the game's own code: there is no climbing in <c>Player</c> or
+        /// <c>Character</c> at all. The only <c>Ladder</c> component is a lift that teleports you
+        /// to a target transform, and the piece used here does not carry one - so a wood ladder
+        /// is climbed purely by walking up its collider, which means it works only if it is the
+        /// right way round, and which way round that is is a decision in a Unity scene this
+        /// server cannot see. Guessing it from the collider shapes would be guessing.</para>
+        ///
+        /// <para>So the way up is made of the same boards as everything else, in steps low
+        /// enough to walk up. A level 2 m tile has no orientation to get wrong, a
+        /// <see cref="Rise"/> step is well inside what a player walks up without jumping, and
+        /// every tread is measured off the prefab - which is the same reason the chests stopped
+        /// floating. The flight hugs the wall at the boardwalk's own radius, so its top tile
+        /// overlaps the walkway's outer edge and you simply walk on.</para>
         /// </summary>
-        private static int Climb(Vector3 centre, string name, int deckHash, Bounds deck)
+        private static int Stair(Vector3 centre, int deckHash, Bounds deck)
         {
-            if (name.Length == 0) return 0;
+            // Valheim lets a player walk up a step of about half a metre without jumping; this
+            // is comfortably inside that, and shallow enough that a wolf chasing somebody up it
+            // is not a surprise either.
+            const float Rise = 0.4f;
 
-            int hash = name.GetStableHashCode();
-            GameObject prefab = ZNetScene.instance.GetPrefab(hash);
-            if (prefab == null)
+            // How far around the ring each step advances. Less than the board is long, so the
+            // treads overlap and the flight reads as a stair rather than a row of shelves.
+            const float Run = 1f;
+
+            const int Most = 40;
+
+            float radius = ArenaSite.Radius + ArenaRing.WallThickness * 0.5f +
+                           Mathf.Max(0.5f, deck.size.z) * 0.5f;
+
+            // Which way round to climb. The wall's top follows the ground, so sweeping towards
+            // the low side is a shorter flight - and on ground that rises faster than the stair
+            // does, sweeping the wrong way is a flight that never catches up with the walkway.
+            float probe = 10f / radius;
+            float up = ArenaRing.WallTopY(On(centre, StairBearing + probe, ArenaSite.Radius));
+            float down = ArenaRing.WallTopY(On(centre, StairBearing - probe, ArenaSite.Radius));
+            float sweep = down < up ? -1f : 1f;
+
+            int made = 0;
+            float y = float.NaN;
+
+            for (int i = 0; i < Most; i++)
             {
-                VersePlugin.Log.LogWarning(
-                    $"arena: no '{name}' prefab on this server - the gallery has no way up, so " +
-                    "nobody can use it");
-                return 0;
-            }
-
-            if (!Footing.Box(hash, out Bounds box)) return 0;
-
-            float lift = box.size.y;
-            string target = "";
-
-            Ladder ladder = prefab.GetComponent<Ladder>();
-            if (ladder != null && ladder.m_targetPos != null)
-            {
-                Vector3 local = prefab.transform.InverseTransformPoint(ladder.m_targetPos.position);
-                if (local.y > 0.5f) lift = local.y;
-
-                // The sideways part is logged rather than acted on: where a step lands across
-                // the wall is what the landing below is for.
-                target = $" (one press lifts {local.y:0.00} m and " +
-                         $"{new Vector2(local.x, local.z).magnitude:0.00} m to one side)";
-            }
-            else
-            {
-                // Which is the case on this server: wood_stepladder carries no Ladder
-                // component, so it is climbed by walking into it rather than by pressing use,
-                // and a flush stack of them is one tall ladder. Either way the spacing is the
-                // prefab's own, which is the point of measuring instead of assuming.
-                target = " (no Ladder component on it, so the stack is spaced by the piece's " +
-                         "own height and climbed rather than pressed)";
-            }
-
-            lift = Mathf.Max(0.5f, lift);
-
-            var outward = new Vector3(Mathf.Cos(LadderBearing), 0f, Mathf.Sin(LadderBearing));
-            float radius = ArenaSite.Radius + ArenaRing.WallThickness * 0.5f + box.size.z * 0.5f;
-
-            float x = centre.x + outward.x * radius;
-            float z = centre.z + outward.z * radius;
-            float ground = ArenaSite.HeightAt(x, z);
-
-            // The walkway's height here, which is the wall's height here plus the planks - asked
-            // at the wall's own radius on this bearing, not at the ladder's, because the wall is
-            // what the walkway is laid on.
-            float surface = ArenaRing.WallTopY(
-                new Vector3(centre.x + outward.x * ArenaSite.Radius, 0f,
-                            centre.z + outward.z * ArenaSite.Radius)) + Lift;
-
-            // Enough lifts to reach the walkway. Each piece's base is below it by construction,
-            // because (steps - 1) lifts is less than the climb, so none of them stands on the
-            // gallery itself.
-            int steps = Mathf.Clamp(Mathf.CeilToInt((surface - ground) / lift), 1, 12);
-
-            for (int i = 0; i < steps; i++)
-            {
-                // Rungs facing out, away from the wall, which is both how one is built against a
-                // wall and the side there is room to stand on.
-                var at = new Vector3(x, ground + i * lift - box.min.y, z);
-                Fixture.Place(hash, at, Quaternion.LookRotation(outward), StandPiece);
-            }
-
-            // A landing at the top, and this is the piece that makes the climb land somewhere.
-            //
-            // The last lift ends above the ladder's own origin, and the ladder leans on the
-            // outside of the wall, so its origin sits a little further out than the walkway's
-            // outer edge - and whether m_targetPos leans in or out from there is a decision
-            // somebody made in the Unity editor, not a number this can rely on. A couple of
-            // boards at the ladder's own radius and the walkway's own height overlap the
-            // walkway and reach past the ladder, so the step lands on planks either way.
-            int boards = 0;
-            float span = Mathf.Max(0.5f, deck.size.x);
-            for (int i = -1; i <= 1; i++)
-            {
-                float bearing = LadderBearing + i * span / radius;
+                float bearing = StairBearing + sweep * i * Run / radius;
                 var along = new Vector3(Mathf.Cos(bearing), 0f, Mathf.Sin(bearing));
 
-                var at = new Vector3(centre.x + along.x * radius,
-                                     surface - deck.max.y,
-                                     centre.z + along.z * radius);
+                float x = centre.x + along.x * radius;
+                float z = centre.z + along.z * radius;
 
-                Fixture.Place(deckHash, at, Quaternion.LookRotation(along), StandPiece);
-                boards++;
+                // The walkway's height on this bearing - asked at the wall's own circle, because
+                // the wall is what the walkway is laid on and the wall follows the ground.
+                float walkway = ArenaRing.WallTopY(On(centre, bearing, ArenaSite.Radius)) + Lift;
+
+                // The first step starts one rise above the ground so there is something to step
+                // up onto from the boardwalk, rather than a tile lying in it.
+                if (float.IsNaN(y)) y = ArenaSite.HeightAt(x, z) + Rise;
+
+                bool last = y >= walkway;
+                float surface = last ? walkway : y;
+
+                ZDO step = Fixture.Place(deckHash,
+                                         new Vector3(x, surface - deck.max.y, z),
+                                         Quaternion.LookRotation(along), StandPiece);
+                step?.Set(StepPiece, 1, okForNotOwner: true);
+                made++;
+
+                if (last) break;
+
+                y += Rise;
             }
 
             VersePlugin.Log.LogInfo(
-                $"arena: {steps} x {name} up the outside of the wall at {radius:0.0} m - each " +
-                $"one lifts {lift:0.00} m, from {ground:0.0} m to a {boards}-board landing at " +
-                $"the walkway's own height, {surface:0.0} m" + target);
+                $"arena: a {made}-step stair up the outside of the wall at {radius:0.0} m, " +
+                $"{Rise:0.00} m a step and {Run:0.00} m round the ring each time");
 
-            return steps + boards;
+            return made;
         }
+
+        /// <summary>A point on a circle of this radius about the centre, at this bearing.</summary>
+        private static Vector3 On(Vector3 centre, float bearing, float radius) =>
+            new Vector3(centre.x + Mathf.Cos(bearing) * radius, 0f,
+                        centre.z + Mathf.Sin(bearing) * radius);
 
         private static bool Measured(string name, int hash, out Bounds box)
         {
