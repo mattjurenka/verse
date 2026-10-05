@@ -9,7 +9,13 @@ namespace HallPatton
     internal static class ReplyText
     {
         /// <summary>Hard ceiling on an answer, however long the model went on.</summary>
-        public const int DefaultMaxLength = 700;
+        /// <summary>
+        /// The hard ceiling on a model answer, in characters, after which it is cut at the last
+        /// sentence end. A backstop rather than the dial: <c>Talking.MaxWords</c> is what the
+        /// model is actually asked for, and this is what happens when it does not listen. Halved
+        /// with it, so an overrun is cut to about the length an obedient answer would have been.
+        /// </summary>
+        public const int DefaultMaxLength = 350;
 
         /// <summary>
         /// Collapses the answer to a single line, strips the wrapping quotes and asterisks

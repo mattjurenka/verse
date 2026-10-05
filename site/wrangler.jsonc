@@ -1,0 +1,8 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "verseworlds",
+  "compatibility_date": "2025-09-01",
+  // Static assets come from the Vite build; functions/ is deployed alongside them as
+  // Pages Functions (each file its own Worker route) - see functions/api/health.ts.
+  "pages_build_output_dir": "dist"
+}

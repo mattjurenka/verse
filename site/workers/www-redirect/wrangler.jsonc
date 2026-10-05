@@ -1,0 +1,9 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "verseworlds-www-redirect",
+  "main": "index.js",
+  "compatibility_date": "2025-09-01",
+  "routes": [
+    { "pattern": "www.verseworlds.fun/*", "zone_name": "verseworlds.fun" }
+  ]
+}

@@ -1,0 +1,31 @@
+[Unit]
+Description=Valheim admin panel (passkey login, live player count)
+After=network.target
+
+[Service]
+Type=simple
+User=valpanel
+Group=valpanel
+# Read access to the valheim unit's journal.
+SupplementaryGroups=systemd-journal
+WorkingDirectory=/opt/valpanel
+ExecStart=/opt/valpanel/venv/bin/python -u /opt/valpanel/app.py
+Restart=always
+RestartSec=5
+StateDirectory=valpanel
+StateDirectoryMode=0700
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+MemoryMax=200M
+
+[Install]
+WantedBy=multi-user.target

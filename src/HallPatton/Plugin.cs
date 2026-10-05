@@ -121,9 +121,12 @@ namespace HallPatton
                 "announced this way - it simply arrives.");
             HistoryTurns = Config.Bind("Talking", "HistoryTurns", 8,
                 "Remembered exchanges per player, so he can follow a conversation. 0 disables memory.");
-            MaxWords = Config.Bind("Talking", "MaxWords", 90,
-                "Length ceiling on an answer, in words, as asked of the model. Long enough " +
-                "for a proper answer with names and dates in it.");
+            MaxWords = Config.Bind("Talking", "MaxWords", 45,
+                "Length ceiling on an answer, in words, as asked of the model. Halved from 90: " +
+                "at ninety he answered a question about a fence post with a paragraph, and in " +
+                "chat that reads as a lecture rather than a reply. Forty-five is still room for " +
+                "a name, a date and a reason. Only the model's answers are affected - his " +
+                "built-in lines are written out in Dialogue.cs and are already a sentence each.");
             LineLength = Config.Bind("Talking", "LineLength", 160,
                 "An answer is broken into chat lines no longer than this, at sentence ends " +
                 "where possible, because the floating speech bubble clips long text.");

@@ -386,6 +386,50 @@ passing greydwarf will kill your NPC and drop a tombstone.
   Ignore it.
 - **`UserInfo` is a class the game mutates** (`CensorShittyWords.Filter(ref Name)`), so hand
   out a fresh instance per send rather than a cached one.
+- **A ZDO's owner is its simulator, not its author.** `ZDOMan.ReleaseNearbyZDOS`
+  (ZDOMan.cs:930) calls `SetOwner(uid)` on every *persistent* ZDO in a player's active area
+  every two seconds, so ownership follows whoever is standing nearest and churns constantly.
+  `GetOwner()` answers "who is simulating this", never "whose is this". If you need to know
+  who made something, record it when the object is created — for a client-made object, that
+  is the `CreateNewZDO` call inside `ZDOMan.RPC_ZDOData`, which only fires for a ZDOID the
+  server has not seen before.
+- **ZDO visibility is already per-peer, with one gate.** `ZDOMan.CreateSyncList`
+  (ZDOMan.cs:1261) builds a separate list per peer, and all four send paths — near objects,
+  distant objects, force-sends, the client change queue — go through
+  `ZDOPeer.ShouldSend(ZDO)` (ZDOMan.cs:52), which is otherwise only a revision check. That
+  is the lever for anything instancing-shaped: a client cannot act on an object it was never
+  sent. Portals come free, because a client matches them among the ZDOs it knows.
+- **The ZDO send scheduler services one peer per *frame*.** `ZDOMan.SendZDOToPeers2`
+  (ZDOMan.cs:886) starts a round every 50 ms and then does one peer per frame, so each
+  player's update period is `50ms + N × frametime` — ~170 ms at 10 players, ~650 ms at 36.
+  It is a scheduling artefact, not bandwidth: `SendZDOs` (ZDOMan.cs:1057) already bounds
+  itself per peer against the socket's send queue. This is the real reason
+  `ZNet.RPC_PeerInfo` caps a server at ten players (ZNet.cs:1038).
+- **`ZDO.Set`'s `okForNotOwner` flag is ignored.** The 1.0.16 body (ZDO.cs:394) writes and
+  bumps `DataRevision` whatever you pass, so a server can write a field on a ZDO a client
+  owns. Fields are per-key, so the owner's own writes do not clear it, and vanilla saves ZDO
+  fields with the world — which makes a ZDO field the cheapest durable place to put
+  server-side metadata about someone else's object.
+- **Clients generate terrain and biomes themselves, from the seed.** `Heightmap.Generate`
+  (Heightmap.cs:421) and `HeightmapBuilder` call `WorldGenerator.instance` on the client, and
+  biomes are radial from the origin. So you cannot move content to a different coordinate and
+  keep the terrain it sat on, and no server patch can put Meadows 8 km out.
+- **Teleporting is client-authoritative.** `Player.TeleportTo` (Player.cs:5888) runs on the
+  client and RPCs its own ZDO; the server cannot refuse it. Anything you want to be
+  unreachable has to be invisible, not far away. The server *can* teleport a player, though:
+  `Character.cs:713` registers `RPC_TeleportTo` on the player's own `ZNetView`, so routing it
+  by ZDOID works even with no instance on the server.
+- **Location icons are pushed per peer, and are what a fresh client spawns on.**
+  `ZoneSystem.SendLocationIcons(long peer)` (ZoneSystem.cs:835) targets one peer, and on a
+  client `GetLocationIcon` (ZoneSystem.cs:2658) reads only what the server sent. Since
+  `Game.FindSpawnPoint` (Game.cs:524) falls back to `GetLocationIcon("StartTemple")`, a
+  server can give two players different spawn points with nothing installed on their end.
+  Note `SendLocationIcons(0L)` at ZoneSystem.cs:2242 broadcasts, so per-peer work has to
+  intercept that too.
+- **Private nested types are patchable.** `ZDOMan.ZDOPeer` is private; reach it with
+  `AccessTools.Inner(typeof(ZDOMan), "ZDOPeer")` and target its methods via a
+  `TargetMethod()`. A patch may take a parameter of an inaccessible type by declaring it
+  `object` — Harmony matches it by name.
 
 ---
 
@@ -533,13 +577,324 @@ All private unless noted; parameter names matter for Harmony injection.
 | `Talker.RPC_Say` | `void RPC_Say(long sender, int ctype, UserInfo user, string text)` |
 | `Chat.RPC_ChatMessage` | `void RPC_ChatMessage(long sender, Vector3 position, int type, UserInfo userInfo, string text)` |
 
+Used by [`Verse`](verse-design.md), which filters what each peer is told about:
+
+| Target | Signature |
+| --- | --- |
+| `ZDOMan.ZDOPeer.ShouldSend` | `bool ShouldSend(ZDO zdo)` — private nested type; see §7 |
+| `ZDOMan.SendZDOs` | `bool SendZDOs(ZDOPeer peer, bool flush)` — take `peer` as `object` |
+| `ZDOMan.SendZDOToPeers2` | `void SendZDOToPeers2(float dt)` (the send scheduler) |
+| `ZDOMan.AddPeer` / `RemovePeer` | `public void AddPeer(ZNetPeer netPeer)` |
+| `ZNet.SendPlayerList` | `void SendPlayerList()` (builds one list for everybody) |
+| `ZoneSystem.SendLocationIcons` | `void SendLocationIcons(long peer)` |
+| `ZNet.RPC_PeerInfo` | `void RPC_PeerInfo(ZRpc rpc, ZPackage pkg)` — the admission gate: player cap and password both live here |
+| `ZNet.SetServer` | `public static void SetServer(bool server, bool openServer, bool publicServer, string serverName, string password, World world)` |
+| `ZSteamMatchmaking.RegisterServer` | `public void RegisterServer(string name, bool password, GameVersion gameVersion, string[] modifiers, uint networkVersion, bool publicServer, string worldName, ServerRegistered cb)` |
+
 `Harmony.PatchAll` throws if a target name does not resolve, so a bad name is a startup
 failure and not a silent no-op — check `BepInEx/LogOutput.log` for
 `Chainloader startup complete`.
 
 ---
 
-## 12. Checklist for the next one
+## 12. Getting listed in the community browser
+
+Four separate pieces of the game decide what a stranger sees in the server list, and three of
+them are reachable from a server-side plugin.
+
+**Read this first: on the PlayFab backend, appearing in the list at all is a lottery, and no
+property of your server changes the odds.** Everything below about sorting is real but applies
+only *after* you have been drawn, so it is the second question, not the first. The browse is
+paginated by a bucket the server assigns itself at random:
+
+```csharp
+// ZPlayFabMatchmaking
+private static int GetSearchPage() => UnityEngine.Random.Range(0, 4);   // stored as number_key11
+
+// ZPlayFabLobbySearch.FindLobbyWithPagination
+Filter = m_searchFilters[m_currentFilter] + $" and number_key11 eq {m_currentPage}",
+Pagination = new PaginationRequest { PageSizeRequested = 50u }
+```
+
+Four buckets, 50 lobbies each: that is where the 200 comes from, and `FindLobbies` is called
+with **no `OrderBy`**. Every public server randomly lands in one of four buckets and PlayFab
+returns an arbitrary 50 of each, so with a population of N the chance of being in a given
+refresh is roughly `200 / N`. There is no name, age, player count or property that promotes
+you, because nothing in the request expresses a preference.
+
+The symptom this produces is confusing and worth recognising: **a server that is reliably
+findable by name but absent from the unfiltered list**. Same code path, different arithmetic —
+the name filter (see `CreateNameSearchFilter` / `CharToKeyName`, a letter-frequency index over
+`number_key15..30` with `ge <count>` per character) narrows thousands of lobbies to a handful,
+which fits inside the 50-per-bucket cap, so it is deterministic. Unfiltered, the cap bites. Do
+not read "found by search" as "registered correctly but sorted badly"; it is the stronger
+signal, and it means the browse is not a channel you can rely on at all.
+
+So for discoverability, prefer the things that are deterministic: the **join code**, the direct
+`host:port`, and a distinctive word in the name for people to search. Treat list position as a
+bonus that occurs on the refreshes you happen to win.
+
+**Once you are in the 200: the list is capped and sorted afterwards, and on the Steam backend
+dedicated servers are last in line for those 200.** This part defeats the obvious trick.
+`CommunityServerList.GetFilteredList` round-robins across the backends until it has 200
+entries and *then* sorts:
+
+```csharp
+while (resultOutput.Count < 200) { /* take entry `num` from each backend in turn */ }
+resultOutput.Sort((ServerListEntryData a, ServerListEntryData b) =>
+    a.m_serverName.CompareTo(b.m_serverName));
+```
+
+and the Steam backend's own `ZSteamMatchmaking.GetServers` has already applied a 200 cap of
+its own, in an order that puts player-hosted lobbies ahead of dedicated servers:
+
+```csharp
+public void GetServers(List<ServerData> allServers)
+{
+    if (m_friendsFilter) { FilterServers(m_friendServers, allServers); return; }
+    FilterServers(m_matchmakingServers, allServers);   // public lobbies first
+    FilterServers(m_dedicatedServers, allServers);     // dedicated servers second
+}
+
+private void FilterServers(List<ServerData> input, List<ServerData> allServers)
+{
+    string text = m_nameFilter.ToLowerInvariant();
+    foreach (ServerData item in input)
+    {
+        if (text.Length == 0 || item.m_matchmakingData.m_serverName.ToLowerInvariant().Contains(text))
+            allServers.Add(item);
+        if (allServers.Count >= 200) break;
+    }
+}
+```
+
+So with an empty search box, 200+ public lobbies mean the dedicated-server list is never
+reached at all. **A sort-early name gets you to the top of whatever 200 were fetched; it does
+not get you into the 200.** Worth stating plainly because the sort is easy to find, easy to
+act on, and on its own does nothing for a server that is being truncated away.
+
+What *does* reliably surface a server is the search box: the filter is a lowercased
+`Contains` on the name applied **before** the cap, so any distinctive substring in the name
+collapses the list to a handful. Design the name so that searching an obvious word finds it.
+
+The sort is worth winning only for the refreshes where you were drawn. `CompareTo` is
+**culture-sensitive**, and that is not the ordinal order — measured against .NET 8's ICU with
+the tag held constant, earliest prefix first:
+
+```
+  1. TAB            2. 5x SPACE      3. 2x SPACE     4. SPACE
+  5. ENSP U+2002    6. NBSP U+00A0   7. __           8. _
+  9. -             10. !            11. (no prefix)
+      ignorable, i.e. identical to no prefix at all: U+0001, ZWSP U+200B, BOM U+FEFF
+```
+
+Three things to take from that. `!` is mid-table, not near the front — it only looks early in
+the *ordinal* table, which also puts `_` dead last, so the two orders disagree completely and
+only the culture-sensitive one is used. More of the same character sorts earlier than fewer.
+And the zero-width characters that look like the clever answer are **ignorable**: they sort
+identically to no prefix, so they do nothing.
+
+A corollary worth knowing when reading a list: leading whitespace is invisible in the row, and
+a name beginning `<color=…>` displays as the text inside the tag while sorting on the `<`. So
+the entry above yours may not start with what it appears to start with. (Our own name sorted
+ahead of `!Aardvark` precisely because `!<` beats `!A` — a symbol outranks a letter.)
+
+Put the sort character *outside* any markup tag so it is still the sort key, and keep it mild:
+a long whitespace prefix renders as a broken-looking indent, and on a crossplay server it also
+ends up inside the PlayFab custom ID (see below), where it is load-bearing for no gain.
+
+**The name is rich text.** `ServerListElement` assigns it straight to a `TMP_Text`:
+
+```csharp
+m_serverName.text = CensorShittyWords.FilterUGC(m_serverListEntry.m_serverName, ...);
+```
+
+so TextMeshPro markup — `<color=#FFFF00>…</color>`, `<b>`, `<i>` — is parsed rather than
+printed. The markup counts against the length budget and against the sort key, so put the
+character you are sorting on *before* the opening tag.
+
+**The length limit is Steam's, not Valheim's.** `ZSteamMatchmaking.RegisterServer` passes the
+name to `SteamGameServer.SetServerName`, which caps at `k_cbMaxGameServerName` = 64 bytes
+including the terminator, so **63 usable bytes** — of which a single `<color=#RRGGBB>…</color>`
+pair spends 23. Valheim does not truncate first and gives no warning; the name is silently
+cut. `SetMapName` next to it caps at 32 and *will* visibly cut a long name, but Valheim's own
+browser never shows the map field. Verify the real thing off the wire rather than from the
+log, with an A2S query on `port + 1`:
+
+```sh
+printf '\xff\xff\xff\xffTSource Engine Query\x00' \
+  | socat -T4 - UDP:host:2457 | od -A d -c            # replies 'A' + 4 challenge bytes
+printf '\xff\xff\xff\xffTSource Engine Query\x00\xAA\xBB\xCC\xDD' \
+  | socat -T4 - UDP:host:2457 | od -A d -c            # resend with those four bytes
+```
+
+The `I` response carries, in order: protocol, **name**, map, folder, game, appid (short),
+players, **max players**, bots, server type (`d`), environment (`l`), **visibility** (0 public,
+1 password-protected), VAC, version. That one packet confirms the name survived whole, the
+advertised cap, and the padlock state.
+
+**`SetMaxPlayerCount` is advertised separately from being enforced.** `RegisterServer` hard-codes
+`SteamGameServer.SetMaxPlayerCount(10)`, overwriting the 64 `SteamManager` set at init. It has
+no part in admitting anyone — `ZNet.RPC_PeerInfo` is the gate — so raising the real cap without
+this one makes the entry read `12 / 10`, worse than full, to everybody choosing a server.
+
+**A listed server must have a password, and that is checked before any plugin can help.**
+`FejdStartup.ParseServerArguments`:
+
+```csharp
+if (flag && !IsPublicPasswordValid(password, createWorld))   // flag is -public
+{
+    ZLog.LogError("Error bad password:" + publicPasswordError);
+    Application.Quit();
+    return false;
+}
+```
+
+`-public 1` with no `-password`, or one under five characters, or one that is a substring of
+the world name or the seed name, **exits the process** — it does not fall back to running
+unlisted. Note also that `-public` defaults to *true* when the flag is absent entirely.
+
+Everything after that check reads one static field, `ZNet.m_serverPassword`, in four places:
+`OpenServer` turns `!= ""` into the browser padlock (and `OnSteamServerRegistered`'s retry
+coroutine recomputes the same flag per re-register), `RPC_ServerHandshake` sends
+`!string.IsNullOrEmpty` of it to the client as `needPassword` (which is what raises the
+dialog), and `RPC_PeerInfo` compares it against what the client sent. The field is **assigned
+in exactly one place** — the last line but two of `SetServer` — which is what makes removing it
+cleanly possible rather than a game of whack-a-mole.
+
+That gives two ways to run a server anyone can get into, and the choice between them is about
+what the entry looks like, not about whether it works. Both are implemented in
+`src/Verse/PublicServer.cs`, behind a config key each:
+
+- **Blank the field** in a postfix on `SetServer` (`NoPassword`) — no padlock, no dialog at
+  all. The client side lines up on its own: `RPC_ClientHandshake` takes its `else` branch when
+  `needPassword` is false and calls `SendPeerInfo(rpc)` on the default `password = ""`, and
+  `SendPeerInfo` writes `string.IsNullOrEmpty(password) ? "" : HashPassword(…)` — a literal
+  empty string, not the MD5 of one — so the server's own `"" != ""` admits the peer. Note the
+  `FejdStartup.ServerPassword` auto-submit sits *inside* the `if (needPassword)` branch, so not
+  even a client holding a remembered password for this server will send one. A postfix rather
+  than an argument rewrite because passing `""` through would skip `HashPassword`, hence skip
+  the lazy `ServerPasswordSalt()` that still gets sent to clients regardless.
+- **Rewrite only the comparison** in `RPC_PeerInfo` (`AcceptAnyPassword`) — padlock shown,
+  dialog raised, any input accepted. The client's `OnPasswordEntered` ignores an empty
+  submission, so the player must type *something*; it just does not matter what.
+
+The two compose, and that is deliberate: `NoPassword` is sufficient on its own, and leaving
+`AcceptAnyPassword` on alongside it means a game update that moves the field degrades to a
+dialog that still accepts anything, rather than locking everyone out of a server advertised as
+open. The startup check can only report the *intent* — `Awake` runs before `SetServer` — so the
+line to confirm in the journal is the postfix's own `password removed: …`.
+
+Note that the padlock is display-only. `isPasswordProtected` is read in exactly one place,
+`ServerListElement.UpdateTextAndIcons`, to toggle the row's `Private` icon; nothing in
+`GetServers`, `FilterServers` or `GetFilteredList` tests it, and `RequestInternetServerList` is
+called with zero filters. A passwordless server is not hidden from the community list — if one
+is missing from it, look at the 200-entry cap above first.
+
+### `-crossplay`, and the three things that stop it working
+
+`-crossplay` sets `ZNet.m_onlineBackend = OnlineBackendType.PlayFab`, which makes `OpenServer`
+call `ZPlayFabMatchmaking.RegisterServer` *instead of* the Steam one — it is either/or, never
+both. The reason to want it is the search box: `PlayFabMatchmaking.ServerSideFiltering` is
+`true` and `RefreshPublicServerList` passes the term to
+`ZPlayFabMatchmaking.ListServers(m_filterLowerInvariant, …)`, so the backend returns matches.
+That is a real query, not the Steam backend's local filter over a truncated list. A crossplay
+server also gets a **join code**, which is a better answer to "how do my friends find it" than
+any browser.
+
+Four things bite, in the order you will hit them — and the fourth made it unusable here, so read
+it before committing to this backend:
+
+1. **`libparty.so` will not load on a headless box.** The symptom is
+   `DllNotFoundException: libParty.so` from `PartyCSharpSDK.SDK.PartyInitialize`, and the
+   misleading part is the name in the message: the file ships as
+   `valheim_server_Data/Plugins/libparty.so` (lower-case p) and is present. The real cause is a
+   missing *dependency* — `ldd` reports `libpulse-mainloop-glib.so.0 => not found`, because the
+   Party SDK is a voice-chat library that links PulseAudio's glib mainloop. Mono reports a
+   failed `dlopen` of a dependency as `DllNotFoundException` on the top-level library, which
+   sends you hunting for the wrong file. On Ubuntu:
+   `apt-get install --no-install-recommends libpulse-mainloop-glib0`. Always run
+   `ldd .../libparty.so | grep "not found"` before believing anything about the filename.
+
+2. **The server name must be 54 characters or less, or the server quits at boot.**
+   `ZPlayFabMatchmaking.RegisterServer` builds a PlayFab account out of it:
+   ```csharp
+   PlayFabManager.SetCustomId(new PlatformUserID(new Platform("PlayFab"),
+       $"{name}_{m_serverPort}_{SystemInfo.deviceUniqueIdentifier}" + (InstanceId ?? "")));
+   ```
+   `PlatformUserID.ToString()` prefixes `PlayFab_`, so the id is 8 + name + 1 + 4 (port) + 1 +
+   32 (`deviceUniqueIdentifier`) = **name + 46**, against PlayFab's 100-character `CustomId`
+   limit. A 60-character name produces 106 and the login is rejected with
+   `/Client/LoginWithCustomID: Invalid input parameters` — after which the code calls
+   **`Application.Quit()`**. Nothing in that error mentions the name, the length, or the limit.
+   TextMeshPro markup in the name is *fine* here; only the length matters, which is worth
+   knowing before you blame the `<color>` tag as we did.
+
+3. **There is no UDP listener on the game port.** Under PlayFab the transport is a Party
+   network over Azure relays (`Joined PlayFab Party network with ID …`), so `ss -lunp` shows
+   only the Steam query socket on `port + 1`. Do not read a missing 2456 listener as a failure
+   the way you would on the Steam backend — read the log instead, which should end with
+   `Session "<name>" with join code <n> and IP <ip>:2456 is active with N player(s)`.
+
+4. **Registration can hang in `State.Creating` forever, and it is both silent and total.** The
+   lobby is created and `registered with join code <n>` is logged, then `CheckJoinCodeIsUnique()`
+   must come back before anything works:
+
+   ```csharp
+   else if (result.Lobbies.Count == 1 && result.Lobbies[0].Owner.Id == GetEntityKeyForLocalUser().Id)
+       ActivateSession();       // UpdateLobby: SearchData["string_key2"] = "True"
+   else
+       OnSessionUpdated(State.RegenerateJoinCode);
+   ```
+
+   `string_key2` is set to `True` **only** by `ActivateSession`, and the join-code lookup, the
+   name search and `FindServerByIp` all filter on `string_key2 eq 'True'` — so an unactivated
+   server matches nothing at all, by any route, while looking perfectly healthy. The client says
+   "couldn't resolve join code" or "failed to connect".
+
+   There is **no timeout**: `m_retries = 100` only decrements when the callback *returns* zero
+   lobbies, so a dropped response wedges the state machine permanently with systemd reporting
+   `active`. **The only evidence is the absence of the `is active with …` log line** — make that,
+   not process liveness, your health check, and put a watchdog on it.
+
+   Observed here after ~8 restarts in 40 minutes: six consecutive instances were issued the
+   *same* join code and the last four never activated, which suggests a stale lobby from an
+   earlier run still owning that code and failing the `Count == 1 && Owner.Id == mine` test.
+   `-instanceid` is **not** a way out — it appends to the custom ID and does produce a new PlayFab
+   entity, but the join code came back identical, so it is not entity-derived. Nothing
+   server-side was found that releases a stale code; the practical remedy was to revert to the
+   Steam backend and let PlayFab's index age out. Avoid restart churn on this backend.
+
+**A crossplay server disappears from every Steam-side tool.** Measured on the same box, minutes
+apart: `ISteamApps/GetServersAtAddress` went from returning the entry to
+`"No servers found at that address"`, and A2S on `port + 1` went from a reliable 228-byte reply
+to nothing at all, 3 attempts out of 3 — the socket is still bound, it just stops answering,
+because the Steam `RegisterServer` path that sets the name, player count and
+`SetAdvertiseServerActive` never runs. Two consequences worth planning around:
+
+- The A2S recipe above, and the keyless `GetServersAtAddress` check, are **Steam-backend only**.
+  They are the quickest way to read any server's *raw* name byte-for-byte — which matters,
+  because leading whitespace and markup in a name are invisible in the browser but are what the
+  list sorts on — and neither works against a crossplay server.
+- Monitoring that pings the query port to decide whether the server is healthy will report it
+  down forever once `-crossplay` is added.
+
+Valheim will show you a dedicated server's address, which is the way in to reading its name:
+`ServerJoinDataTypeExtentions.DisplayUnderlyingDataToUser` is
+`switch (false, true, false, true)` over `None, SteamUser, PlayFabUser, Dedicated`, and
+`ServerListElement.UpdateTextAndIcons` appends `m_joinData.ToString()` to the row's tooltip when
+it is true. So hovering a `Dedicated` entry in the browser shows `host:port`.
+
+One consequence for a plugin that keys anything per account: `ZSteamSocket.GetHostName()`
+returns a bare Steam ID and `ZPlayFabSocket.GetHostName()` returns
+`PlatformUserID.ToString()`, which is `GetPlatformPrefix(platform) + userID` — the same player,
+spelled `76561198033210929` on one backend and `Steam_76561198033210929` on the other. Adding
+`-crossplay` to a server whose state is keyed on the first form silently orphans all of it. See
+`src/Verse/AccountId.cs`, which exists entirely because of this.
+
+---
+
+## 13. Checklist for the next one
 
 1. Decompile first. Every design decision above came from reading a method, and several
    contradict the obvious guess.

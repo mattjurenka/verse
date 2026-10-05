@@ -86,5 +86,12 @@
             fi
           '';
         };
+
+        # The marketing/docs site in site/ (React + Vite + Tailwind + shadcn/ui, deployed to
+        # Cloudflare Pages) is a separate concern from the .NET plugins and needs none of the
+        # above - just Node and pnpm. `nix develop .#site`.
+        devShells.site = pkgs.mkShell {
+          packages = [ pkgs.nodejs_22 pkgs.pnpm ];
+        };
       });
 }

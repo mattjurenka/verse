@@ -1,0 +1,9 @@
+allowBuilds:
+  esbuild: true
+  workerd: true
+
+# pnpm's default supply-chain cooldown rejects packages published too recently. Everything
+# this project pulls fresh (wrangler, @cloudflare/workers-types, lucide-react, @types/node) is
+# a well-known, high-traffic package that happened to cut a release the same day this was
+# scaffolded - not a signal worth blocking installs over.
+minimumReleaseAge: 0

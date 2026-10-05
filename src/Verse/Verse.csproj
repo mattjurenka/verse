@@ -1,0 +1,80 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net462</TargetFramework>
+    <AssemblyName>Verse</AssemblyName>
+    <RootNamespace>Verse</RootNamespace>
+    <Version>0.1.0</Version>
+    <LangVersion>latest</LangVersion>
+    <DebugType>portable</DebugType>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <!-- Game assemblies are reference-only; never copy them next to the plugin. -->
+    <NoWarn>$(NoWarn);MSB3277</NoWarn>
+
+    <!-- Both default to the devshell's exported env vars; override on the CLI if needed. -->
+    <ValheimDir Condition="'$(ValheimDir)' == ''">$(VALHEIM_DIR)</ValheimDir>
+    <ValheimManaged Condition="'$(ValheimManaged)' == ''">$(VALHEIM_MANAGED)</ValheimManaged>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Lets the .NET 8 SDK target .NET Framework 4.6.2 (Valheim's Unity Mono runtime). -->
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup Label="BepInEx">
+    <Reference Include="BepInEx">
+      <HintPath>$(ValheimDir)/BepInEx/core/BepInEx.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(ValheimDir)/BepInEx/core/0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup Label="Valheim">
+    <Reference Include="assembly_valheim">
+      <HintPath>$(ValheimManaged)/assembly_valheim.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="assembly_utils">
+      <HintPath>$(ValheimManaged)/assembly_utils.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- PlatformUserID: the stable per-player key the verse registry is indexed by. -->
+    <Reference Include="Splatform">
+      <HintPath>$(ValheimManaged)/Splatform.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup Label="Unity">
+    <Reference Include="UnityEngine">
+      <HintPath>$(ValheimManaged)/UnityEngine.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(ValheimManaged)/UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- Colliders: Footing measures a prefab's own bottom and top off them. -->
+    <Reference Include="UnityEngine.PhysicsModule">
+      <HintPath>$(ValheimManaged)/UnityEngine.PhysicsModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- Shipped by the game already, so using it adds no assemblies to the plugin folder. -->
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>$(ValheimManaged)/Newtonsoft.Json.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <Target Name="DeployToGame" AfterTargets="Build"
+          Condition="'$(ValheimDir)' != '' AND Exists('$(ValheimDir)/BepInEx')">
+    <MakeDir Directories="$(ValheimDir)/BepInEx/plugins/Verse" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(ValheimDir)/BepInEx/plugins/Verse" />
+    <Message Importance="high" Text="Deployed $(TargetFileName) -> $(ValheimDir)/BepInEx/plugins/Verse" />
+  </Target>
+
+</Project>

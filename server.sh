@@ -61,11 +61,35 @@ if [ -z "${VALHEIM_DIR:-}" ]; then
   exec nix develop --command "$0" "$@"
 fi
 
-dotnet build src/HallPatton/HallPatton.csproj -c Release \
-  -p:ValheimDir="$SERVER_DIR" \
-  -p:ValheimManaged="$SERVER_DIR/valheim_server_Data/Managed" \
-  --nologo -v quiet
-echo "deployed the plugin into $SERVER_DIR/BepInEx/plugins/HallPatton"
+# PLUGINS is what gets built and left installed. Anything already in the server's plugins
+# folder that is not on the list is moved aside rather than deleted, because two plugins on
+# the same game method measure each other rather than the game:
+#
+#   PLUGINS="HallPatton Firehose" ./server.sh    # what deploy.sh ships - the Firehose test
+#   PLUGINS=Firehose ./server.sh                 # Firehose alone
+#
+PLUGINS="${PLUGINS:-HallPatton Verse Firehose}"
+
+for name in $PLUGINS; do
+  dotnet build "src/$name/$name.csproj" -c Release \
+    -p:ValheimDir="$SERVER_DIR" \
+    -p:ValheimManaged="$SERVER_DIR/valheim_server_Data/Managed" \
+    --nologo -v quiet
+done
+
+for dir in "$SERVER_DIR"/BepInEx/plugins/*/; do
+  [ -d "$dir" ] || continue
+  name=$(basename "$dir")
+  case " $PLUGINS " in
+    *" $name "*) continue ;;
+  esac
+  mkdir -p "$SERVER_DIR/BepInEx/plugins.disabled"
+  rm -rf "$SERVER_DIR/BepInEx/plugins.disabled/$name"
+  mv "$dir" "$SERVER_DIR/BepInEx/plugins.disabled/$name"
+  echo "moved $name aside (not in PLUGINS) -> BepInEx/plugins.disabled/$name"
+done
+
+echo "deployed into $SERVER_DIR/BepInEx/plugins:$(for n in $PLUGINS; do printf ' %s' "$n"; done)"
 
 if [ -z "${MODEL_API_KEY:-}" ]; then
   echo "note: MODEL_API_KEY is not set, so Muse is off and the built-in lines will answer."

@@ -10,6 +10,32 @@ walks over and starts answering questions.
 
 Built against **Valheim 1.0.16** with **BepInEx 5.4.23.5** (BepInExPack_Valheim 5.4.2351).
 
+> **This repository also holds three things unrelated to Mark** — two more server plugins
+> and the admin dashboard that watches the live server.
+>
+> `src/Firehose` makes arriving somewhere new — stepping out of a portal, most visibly —
+> take a second rather than ten. Vanilla caps the world data it will push at one player to
+> a 10 KB window that counts bytes still awaiting acknowledgement, which works out to a
+> flat ~64 KB/s at a 160 ms ping however much bandwidth there is; a busy destination is
+> 0.5–0.6 MB. Three constants, one switch each, with the measurement built in — see
+> [docs/portal-sync.md](docs/portal-sync.md).
+>
+> `src/Verse` gives every player their own private world inside one server process, with a
+> `!verse` chat command to open it up, invite people or join someone else's — see
+> [docs/verse-design.md](docs/verse-design.md). Still early, and that document is honest
+> about what leaks.
+>
+> `valpanel/` is not a plugin at all — it is the admin dashboard running on the droplet:
+> who is online right now, and a month of host and game metrics, behind a passkey login.
+> Pulled off the box into this repo, which is the only version history it has — see
+> [valpanel/README.md](valpanel/README.md).
+>
+> `site/` is verseworlds.fun — the public homepage explaining what a verse is and
+> documenting `!verse`/`!warp`, deployed to Cloudflare Pages. Its own Node toolchain, not the
+> plugins' — see [site/README.md](site/README.md).
+>
+> `./build.sh` builds all three plugins; the rest of this README is about Mark.
+
 ## Using it
 
 Everything happens in chat, because chat is the only channel a vanilla client will send
@@ -88,8 +114,9 @@ last model failure.
 
 ## Hosting it on a real server
 
-The droplet needs no .NET and no Nix. The plugin is a single 96 KB DLL built here and
-copied over, so the remote only ever holds the game, BepInEx and that file.
+The droplet needs no .NET and no Nix. Each plugin is a single DLL built here and copied
+over - 96 KB for Mark, 24 KB for Firehose - so the remote only ever holds the game,
+BepInEx and those files.
 
 ```sh
 ./deploy.sh root@your-host        # build, upload, restart, print the startup check
@@ -97,9 +124,10 @@ copied over, so the remote only ever holds the game, BepInEx and that file.
 ./deploy.sh --logs root@host      # follow the remote journal
 ```
 
-It uploads the BepInEx pack on the first run, then the DLL and the two generated indexes
-every time. `HallPatton.notes.md` is copied once and never overwritten after that: it is
-the operator's file.
+It uploads the BepInEx pack on the first run, then `HallPatton.dll`, `Firehose.dll` and the
+two generated indexes every time. `src/Verse` is deliberately not shipped, because its own
+send scheduler collides with Firehose's; set `PLUGINS` to override. `HallPatton.notes.md`
+is copied once and never overwritten after that: it is the operator's file.
 
 ### Standing one up from scratch
 
@@ -160,7 +188,7 @@ Everything is pinned in the flake — no global SDK install needed.
 
 ```sh
 nix develop      # dotnet 8, ilspycmd, mono, binutils, file, unzip, jq, curl
-./build.sh       # builds and copies the DLL into BepInEx/plugins/HallPatton
+./build.sh       # builds all three plugins and copies them into BepInEx/plugins
 ./test.sh        # command parsing, keyword matching, answer shaping
 ```
 
@@ -210,7 +238,7 @@ Written on first run to `BepInEx/config/com.matthew.hallpatton.cfg`.
 | `ThinkSeconds` | `2.5` | He says nothing at all for this long after a question, however fast the answer comes back |
 | `Acknowledge` | `true` | If the answer is still not ready when `ThinkSeconds` is up, he says "let me think" so you know he heard you. A quick answer is never announced this way |
 | `HistoryTurns` | `8` | Remembered exchanges per player; `0` disables memory |
-| `MaxWords` | `90` | Answer length ceiling, as asked of the model |
+| `MaxWords` | `45` | Answer length ceiling, as asked of the model. This is the dial for how much he says; his built-in lines are fixed text in `Dialogue.cs` and are not affected |
 | `LineLength` | `160` | Answers are broken into chat lines this long |
 | `MaxLines` | `5` | Most lines one answer may use |
 | `LineGapSeconds` | `2.5` | Pause between those lines |

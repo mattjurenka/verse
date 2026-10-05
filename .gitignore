@@ -9,3 +9,18 @@ result-*
 # the repo's own scripts there are tracked.
 tools/*
 !tools/*.sh
+
+# valpanel: a local virtualenv and Python caches (the venv on the box is not tracked either)
+venv/
+__pycache__/
+*.pyc
+
+# local secrets (API tokens, etc.), loaded by .envrc via dotenv_if_exists
+.env.local
+
+# direnv's nix profile cache
+.direnv/
+
+# site: pnpm's store and wrangler's local R2/KV state (455 MB between them)
+site/node_modules/
+site/.wrangler/

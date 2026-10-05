@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Valheim Admin</title>
+<link rel="stylesheet" href="/app.css">
+<script src="/app.js" defer></script>
+</head>
+<body>
+<main class="viz-root">
+  <header>
+    <h1>Valheim admin</h1>
+    <p class="host">valheim.jurenka.software</p>
+  </header>
+
+  <section id="loading" class="card"><p class="muted">Loading…</p></section>
+
+  <section id="signed-out" class="card" hidden>
+    <h2>Sign in</h2>
+    <p class="muted">Use a passkey to sign in. If you don't have one for this site yet, create one. It won't have access until an admin approves it.</p>
+    <div class="row">
+      <button id="btn-login" class="primary">Sign in with passkey</button>
+    </div>
+    <details>
+      <summary>Create a new passkey</summary>
+      <div class="row">
+        <input id="label" maxlength="40" placeholder="Your name (shown in your passkey manager)" autocomplete="off">
+        <button id="btn-register">Create passkey</button>
+      </div>
+    </details>
+  </section>
+
+  <section id="pending" class="card" hidden>
+    <h2>Not approved yet</h2>
+    <p>You're signed in with this passkey, but it isn't on the approved list.</p>
+    <label>Passkey ID</label>
+    <code id="pending-id" class="copy"></code>
+    <div id="pending-line-wrap">
+      <label>Line for the admin to add to <code>APPROVED</code> in <code>/opt/valpanel/app.py</code></label>
+      <pre id="pending-line" class="copy"></pre>
+    </div>
+    <p id="pending-unverified" class="warn" hidden>This passkey wasn't created on this panel, so it can't be verified or approved. Create a new passkey here instead.</p>
+    <div class="row"><button class="logout">Sign out</button></div>
+  </section>
+
+  <section id="dash" hidden>
+    <div class="card stat">
+      <div>
+        <div class="label">Players online</div>
+        <div id="count" class="big">–</div>
+      </div>
+      <div class="right">
+        <span id="server" class="pill">–</span>
+        <div id="updated" class="muted small"></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Who's on</h2>
+      <ul id="players"></ul>
+      <p id="snapshot" class="muted small"></p>
+    </div>
+    <div class="card">
+      <div class="metrics-head">
+        <h2>Who's been on</h2>
+        <div id="windows" class="ranges" role="group" aria-label="Time window">
+          <button data-window="24h">24h</button>
+          <button data-window="7d">1wk</button>
+          <button data-window="30d">1mo</button>
+        </div>
+      </div>
+      <div id="visitors" class="table-wrap"></div>
+      <div class="pager">
+        <button id="visitors-prev">Prev</button>
+        <span id="visitors-page" class="muted small"></span>
+        <button id="visitors-next">Next</button>
+      </div>
+      <p id="visitors-note" class="muted small"></p>
+    </div>
+    <section class="metrics" aria-labelledby="metrics-h">
+      <div class="metrics-head">
+        <h2 id="metrics-h">Server metrics</h2>
+        <div id="ranges" class="ranges" role="group" aria-label="Time range">
+          <button data-range="1h">1h</button>
+          <button data-range="6h">6h</button>
+          <button data-range="24h">24h</button>
+          <button data-range="7d">7d</button>
+          <button data-range="30d">30d</button>
+        </div>
+      </div>
+      <div id="tiles" class="tiles"></div>
+      <p id="metrics-note" class="muted small"></p>
+      <div id="charts"></div>
+    </section>
+    <section class="card" aria-labelledby="console-h">
+      <div class="console-head">
+        <h2 id="console-h">Server console</h2>
+        <div class="console-tools">
+          <input id="log-filter" type="search" placeholder="Filter" autocomplete="off" spellcheck="false">
+          <button id="log-pause" aria-pressed="false">Pause</button>
+          <button id="log-clear">Clear</button>
+        </div>
+      </div>
+      <div id="log" class="log" role="log" aria-live="off" tabindex="0"></div>
+      <p id="log-note" class="muted small">Everything the server prints, as it prints it.</p>
+    </section>
+    <div class="card">
+      <label>Signed in with passkey</label>
+      <code id="me-id"></code>
+      <div class="row"><button class="logout">Sign out</button></div>
+    </div>
+  </section>
+
+  <p id="error" class="error" role="alert" hidden></p>
+</main>
+</body>
+</html>

@@ -1,0 +1,11 @@
+# Pinned from the venv on the droplet. The only direct dependency is webauthn;
+# everything else is something it pulled in.
+cbor2==6.1.4
+cffi==2.1.1
+cryptography==50.0.2
+pyasn1==0.6.4
+pyasn1_modules==0.4.2
+pycparser==3.0
+pyOpenSSL==26.4.0
+typing_extensions==4.16.0
+webauthn==3.0.1
