@@ -905,7 +905,146 @@ spelled `76561198033210929` on one backend and `Steam_76561198033210929` on the 
 
 ---
 
-## 13. Checklist for the next one
+## 13. Changing an enemy from the server
+
+"What can the server change about a creature that a vanilla client will respect?" has a
+mechanical answer, and it is three questions in order:
+
+1. Does the field live in the **ZDO** or in the **prefab**? Prefab fields are read from the
+   player's own install and a server cannot touch them.
+2. Does the client read it **unconditionally**, or only `if (m_nview.IsOwner())`?
+3. Does the **owner** also write it, and how often? That is what decides whether a write
+   sticks or is gone next tick.
+
+### Nothing rejects the write — the owner overwrites it
+
+Worth settling first, because it is the opposite of the natural guess. `ZDO.Set` bumps the
+revision with no ownership test (`ZDO.cs:347` → `IncreaseDataRevision`), and the send filter
+`ZDOMan.ZDOPeer.ShouldSend` (`ZDOMan.cs:52`) compares revisions and *also* never looks at the
+owner:
+
+```csharp
+public bool ShouldSend(ZDO zdo) {
+    if (m_zdos.TryGetValue(zdo.m_uid, out var value)) {
+        if (zdo.OwnerRevision <= value.m_ownerRevision)
+            return zdo.DataRevision > value.m_dataRevision;
+        return true;
+    }
+    return true;
+}
+```
+
+So the server may write any field of any ZDO it does not own, and every peer whose copy is
+older gets it on the next send round. There is no permission check anywhere in the path. The
+only thing that can undo the write is the owner setting the same field later.
+
+### And the owner is a player's client, not the server
+
+`ZDOMan.ReleaseNearbyZDOS` (`ZDOMan.cs:950`) runs on each peer and claims any persistent ZDO
+in its active area that nobody is simulating:
+
+```csharp
+else if ((!tempNearObject.HasOwner() || !IsInPeerActiveArea(position, tempNearObject.GetOwner()))
+         && ZNetScene.InActiveArea(position, zone))
+    tempNearObject.SetOwner(uid);
+```
+
+The player standing next to the draugr simulates the draugr. Taking ownership back is possible
+and almost always wrong: a dedicated server only instantiates objects near its own reference
+position, so a server-owned creature anywhere else has no GameObject — no AI, no movement, a
+statue. It is not even a visible statue, because `Character.CustomFixedUpdate` does
+`SetVisible(zdo.HasOwner())` (`Character.cs:822`) and `SetVisible(false)` pushes the LOD
+reference point to `999999` (`Character.cs:4299`). An unowned creature is invisible until a
+client nearby re-claims it, which takes about a second.
+
+### A. Fields the client re-reads while the creature is standing in front of it
+
+These land on a creature that is already spawned and being looked at.
+
+| ZDO field | What changes | Who reads it, and when | What else writes it |
+| --- | --- | --- | --- |
+| `s_health` | The health bar for everyone, and **a value ≤ 0 is a real kill**: the owner's `CheckDeath()` runs every `CustomFixedUpdate` and reads `GetHealth()` off the ZDO (`Character.cs:845`, `2866`, `3005`). Death animation, ragdoll, loot, kill credit - the whole path | every client, every frame | the owner, on any damage or heal |
+| `s_maxHealth` | `GetMaxHealth()` (`Character.cs:3070`) for everyone - the bar's denominator and the real ceiling | every client, on demand | only `SetMaxHealth`; `SetupMaxHealth` runs in `Awake` and only when the creature is at full health |
+| `s_overrideHoverName` | The name over its head. `Character.GetHoverName` returns it when non-blank (`Character.cs:3875`) and `EnemyHud` re-reads it every update (`EnemyHud.cs:200`) | every client, continuously | **nothing** - a free field |
+| `s_tamedName` / `s_tamedNameAuthor` | The name, for anything with a `Tameable`, which takes priority over the above | every client | the owner, on `SetName` |
+| `s_aggravated` | Hostility for aggravatable factions (Dvergr). `IsAggravated()` re-reads it on a 1 s timer on every client (`BaseAI.cs:1183`) and `BaseAI.IsEnemy` consults it | every client, every second | the owner, on `SetAggravated` |
+| `s_patrol` + `s_patrolPoint` | Where the creature walks. `GetPatrolPoint` re-reads both on a 1 s timer (`BaseAI.cs:295`) **in the owner's own AI loop** - so this is a server-side "go stand here" for a creature the server does not own | the owner, every second | the owner, only when something calls `SetPatrolPoint` / `ResetPatrolPoint` |
+| equipment hashes: `s_rightItem`, `s_leftItem`, `s_helmetItem`, `s_chestItem`, `s_legItem`, `s_shoulderItem`, `s_utilityItem`, `s_trinketItem`, and their `*Variant` / `*Quality` | What it **looks like** it is holding or wearing. `VisEquipment.CustomUpdate` → `UpdateEquipmentVisuals` reads every slot off the ZDO each frame (`VisEquipment.cs:721`), for every client including the owner | every client, every frame | the owner, but only when its real equipment *changes*: `SetRightItem` early-returns when the hash equals its own local field (`VisEquipment.cs:462`), so a slot the creature never uses keeps the server's value indefinitely |
+| `s_alert` | The alerted animation and music on non-owners (`BaseAI.cs:313`) | non-owners, every AI tick | the owner, from its own state, every time it changes - so a server write here is cosmetic and short-lived |
+| position, rotation, `s_bodyVelocity`, `s_tiltrot` | - | - | the owner, every tick. Hopeless; use `RPC_TeleportTo` |
+
+Note what the equipment row means: you can hand a Draugr a visible Frostner and it will keep
+hitting you with its real axe. Appearance and behaviour are different systems.
+
+### B. Fields read once, in `Awake`
+
+These are respected by every client that instantiates the creature **fresh** - which is every
+player who walks into range, and the same player again after walking away and back. They do
+not reach a client already looking at it.
+
+| ZDO field | What changes |
+| --- | --- |
+| `s_level` | Read in `Character.Awake` (`Character.cs:699`). Three separate consequences: the star count in `EnemyHud`; `LevelEffects.Start` → `SetupLevelVisualization(GetLevel())` scales the model and tints its material (`LevelEffects.cs:42`); and the owner's `SetupMaxHealth()` sets max health to `base × level`. A fourth at death: `CharacterDrop.GenerateDropList` multiplies every drop by `2^(level-1)` (`CharacterDrop.cs:73`), so **level is a loot multiplier** |
+| `s_tamed` | Friendliness. `BaseAI.IsEnemy` (`BaseAI.cs:1193`) short-circuits on `IsTamed()` for either side, so a tamed creature stops fighting players and players' tames stop fighting it |
+| `s_huntPlayer` | It tracks players from any distance instead of only what it can see or hear (`BaseAI.cs:244`) |
+| `s_spawnPoint` | Where it returns to and leashes against (`BaseAI.cs:245`) |
+| `s_despawnInDay` | It vanishes at dawn (`MonsterAI.cs:152`) |
+| `s_eventCreature` | It counts as a raid creature, with the raid's despawn rules (`MonsterAI.cs:153`) |
+| `s_sleeping` | Sleeping pose and the wake-up sequence (`MonsterAI.cs:154`) |
+| `s_scaleHash` / `s_scaleScalarHash` | Raw `transform.localScale`, read in `ZNetView.Awake` - **but only if the prefab has `m_syncInitialScale`** (`ZNetView.cs:68`), which most creature prefabs do not. Check before relying on it; `s_level` is the portable way to change size |
+
+### C. RPCs, which are the imperative half
+
+The server has no `ZNetView` for a creature it is not standing next to, so `ZNetView.InvokeRPC`
+is not available. Address the object by id instead -
+`ZRoutedRpc.cs:120` is the overload that exists for this:
+
+```csharp
+ZRoutedRpc.instance.InvokeRoutedRPC(zdo.GetOwner(), zdo.m_uid, "RPC_Damage", hit);
+```
+
+Send to `zdo.GetOwner()` for the owner-gated handlers, and to each peer individually for the
+cosmetic ones.
+
+| RPC | Registered by | Acts on | Effect |
+| --- | --- | --- | --- |
+| `RPC_Damage(HitData)` | `Character` | owner only (`Character.cs:698`ff) | The real damage path: damage types, stagger, knockback, and attribution. Set `hit.m_attacker` to a player's `ZDOID` and the kill counts for that player - trophies, boss kills, `s_attackers`. **This is the sanctioned way to hurt or kill something**, as opposed to writing `s_health` |
+| `RPC_Heal(hp, showText)` | `Character` | owner only | |
+| `RPC_AddStatusEffect(nameHash, resetTime, itemLevel, skillLevel, variant)` | `SEMan`, on the same `ZNetView` (`SEMan.cs:56`) | owner only | Any `StatusEffect` in the client's `ObjectDB` - burning, frost, slowed, poison. Real simulation, not a decal |
+| `RPC_SetTamed(bool)` | `Character` | owner only | Writes `s_tamed` the way the game does |
+| `RPC_TeleportTo(pos, rot, distantTeleport)` | `Character` | owner only | Moves a creature properly, unlike writing the position |
+| `SetAggravated(bool, reason)` | `BaseAI` | owner only | Also fires `m_onBecameAggravated` |
+| `Alert` | `BaseAI` | owner only | `SetAlerted(true)` |
+| `RPC_AddNoise(float)` | `Character` | owner only | Makes it think it heard something |
+| `Command(playerZDOID, message)`, `SetName(name, author)`, `AddSaddle`, `SetSaddle`, `RPC_UnSummon` | `Tameable` | owner, and `SetName` additionally requires `IsTamed()` | |
+| `RPC_Stagger(forceDirection)` | `Character` | **every receiver**, no ownership check (`Character.cs`) | Animation only - it does not actually stagger the simulation |
+| `RPC_FreezeFrame(duration)` | `Character` | every receiver | Animation only |
+| `SetTrigger(name)` | `ZSyncAnimation` (`ZSyncAnimation.cs:217`) | every receiver, no ownership check | `m_animator.SetTrigger(name)`. Any animation on any creature, on whichever clients you choose |
+| `RPC_Wakeup` / `RPC_Sleep` | `MonsterAI` | **only non-owners** (`MonsterAI.cs:871`, `891`) - they exist for the owner to tell everyone else | From a server this desynchronises the pose from the simulation. Write `s_sleeping` instead |
+
+### D. What cannot be changed at all
+
+Everything that lives on the prefab or its `ScriptableObject`s, because each client reads it
+from its own installation: faction (`Character.GetFaction` just returns `m_faction`), group,
+every damage and resistance number, the attack list, armour, movement and turn speeds, the
+drop **table** itself, the model, `m_boss`, `m_canBeAlerted`, `m_defaultItems`, `m_name`, and
+`LevelEffects`' own per-level scale and colour values.
+
+The one lever for anything in this column is to **spawn a different prefab**. Creating the ZDO
+is §2; remember that `ZDOMan.CreateNewZDO`'s prefab argument does not set the ZDO's prefab
+field, so call `zdo.SetPrefab(hash)` explicitly or you get an object that exists as data and
+renders as nothing.
+
+### The short version
+
+A server can rename a creature, restyle it, re-size it, make it friendly or hostile, give it
+a visible weapon it does not use, make it track players across the map, send it to stand
+somewhere, put it to sleep, play any animation on it, set or cap its health, poison or freeze
+it, teleport it, multiply its loot, and kill it with the credit going to whoever it likes. It
+cannot make it hit harder, move faster, resist frost, drop something that is not on its table,
+or belong to a different faction - for any of those, spawn something else.
+
+## 14. Checklist for the next one
 
 1. Decompile first. Every design decision above came from reading a method, and several
    contradict the obvious guess.
