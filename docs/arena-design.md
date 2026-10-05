@@ -469,6 +469,10 @@ Built, in `src/Verse`:
   second offset half a piece around the ring so its bars fall between the first's rather than
   coplanar with them: 2.7 m of iron over the walkway, after one course came back as "you can
   barely jump over them".
+- The gallery is **two boards wide**, the outer ring laid after the ramps and skipping any
+  position that lands near one — a continuous outer ring at walkway height would be a ceiling
+  over the top of a ramp, and the way up would stop working. Outwards is the only direction it
+  can grow: inwards is past the railing and over the fighting floor.
 - **`ArenaTrim.cs`** — the venue's dressing: banners and sconces down the inside of the wall,
   braziers along the gallery. Cosmetic except for one mechanism — a torch or brazier is a
   `Fireplace`, and a `Fireplace` burns `ZDOVars.s_fuel` down against `s_lastTime`, so an arena

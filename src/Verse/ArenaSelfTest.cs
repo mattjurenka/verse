@@ -717,6 +717,36 @@ namespace Verse
 
             Check($"{rails} piece(s) of railing stand along the inside of its top", rails > 0);
 
+            // The gallery is two boards wide now, and the outer ring has to have gaps in it
+            // where the ramps arrive - a continuous ring at walkway height would be a ceiling
+            // over the top of a ramp and the way up would stop working. So: an outer ring
+            // exists, and no board of it sits on top of a ramp.
+            int ringBoards = 0;
+            float onRamps = float.MaxValue;
+
+            foreach (ZDO piece in gallery)
+            {
+                if (piece.GetPrefab() != boardHash || ArenaStand.IsStep(piece)) continue;
+
+                Vector3 p = piece.GetPosition();
+                float dx = p.x - centre.x, dz = p.z - centre.z;
+                if (dx * dx + dz * dz <= (ArenaSite.Radius + 1f) * (ArenaSite.Radius + 1f)) continue;
+
+                ringBoards++;
+
+                foreach (Board step in climb)
+                {
+                    float sx = step.At.x - p.x, sz = step.At.z - p.z;
+                    onRamps = Mathf.Min(onRamps, Mathf.Sqrt(sx * sx + sz * sz));
+                }
+            }
+
+            Check($"the gallery is two boards wide ({ringBoards} in its outer ring)",
+                  ringBoards > 8);
+            Check($"and the outer ring leaves the ways up clear (nearest board to a ramp is " +
+                  $"{(onRamps < float.MaxValue ? onRamps : 0f):0.0} m away)",
+                  climb.Count == 0 || onRamps > 1.5f);
+
             // The walkway is level now, because the wall's top is. That is the fix for the
             // wedge-shaped gaps that opened under every railing piece where the old
             // terrain-following wall stepped - so the flatness is the thing to assert, and the

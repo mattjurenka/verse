@@ -231,6 +231,7 @@ namespace Verse
                 // surface, so compare like with like.
                 int boards = 0;
                 int steps = 0;
+                int wide = 0;
                 float walkway = float.MinValue;
                 float under = float.MaxValue;
 
@@ -264,7 +265,14 @@ namespace Verse
 
                     boards++;
 
-                    float surface = zdo.GetPosition().y + deck.max.y;
+                    // Which ring it belongs to, so a gallery built before it was widened is
+                    // noticed and widened rather than left as a ledge.
+                    Vector3 where = zdo.GetPosition();
+                    float out2 = (where.x - centre.x) * (where.x - centre.x) +
+                                 (where.z - centre.z) * (where.z - centre.z);
+                    if (out2 > (radius + 1f) * (radius + 1f)) wide++;
+
+                    float surface = where.y + deck.max.y;
                     walkway = Mathf.Max(walkway, surface);
                     under = Mathf.Min(under, surface);
                 }
@@ -280,7 +288,9 @@ namespace Verse
                 // The stair counts too: a gallery with no way up is not a gallery, and this is
                 // how a ladder or a flight of steps from an older build gets replaced rather
                 // than left standing beside the ramp.
-                if (boards >= decks && steps >= 2 && atFoot && atFar &&
+                // And the outer ring, loosely: how many of its boards are left out depends on
+                // how far the two ramps sweep, so half of a full ring is the test.
+                if (boards >= decks && steps >= 2 && atFoot && atFar && wide >= decks / 2 &&
                     Mathf.Abs(walkway - highest) < Slack && Mathf.Abs(under - lowest) < Slack)
                 {
                     _built = true;
@@ -358,8 +368,14 @@ namespace Verse
 
             // Two ways up, on opposite sides, so nobody walks half the circumference of the
             // arena to get to the gallery - which is what one ramp means wherever you land.
-            made += Ramp(centre, StairBearing, deckHash, deck);
-            made += Ramp(centre, FarBearing, deckHash, deck);
+            //
+            // Built before the outer boards, because where they end up is what decides where
+            // the gaps in those boards have to be.
+            var ramps = new List<Vector3>();
+            made += Ramp(centre, StairBearing, deckHash, deck, ramps);
+            made += Ramp(centre, FarBearing, deckHash, deck, ramps);
+
+            made += Widen(centre, deckHash, deck, ramps);
 
             _built = made > 0;
 
@@ -392,7 +408,8 @@ namespace Verse
         /// at <see cref="MaxSlope"/>, well under where Valheim starts sliding you back down - is
         /// the only thing that has to be right.</para>
         /// </summary>
-        private static int Ramp(Vector3 centre, float from, int deckHash, Bounds deck)
+        private static int Ramp(Vector3 centre, float from, int deckHash, Bounds deck,
+                                List<Vector3> laid)
         {
             // Shallower than anything Valheim slides you down, and shallower than it needs to be:
             // a spectator climbing to the gallery is not a challenge to be set.
@@ -459,6 +476,7 @@ namespace Verse
 
                 ZDO board = Fixture.Place(deckHash, at, facing, StandPiece);
                 board?.Set(StepPiece, 1, okForNotOwner: true);
+                laid?.Add(at);
             }
 
             VersePlugin.Log.LogInfo(
@@ -469,6 +487,67 @@ namespace Verse
             return boards;
         }
 
+        /// <summary>
+        /// A second ring of boards outside the first, so the gallery is wide enough to walk
+        /// along rather than edge along.
+        ///
+        /// <para>The walkway is one board wide - two metres, of which the railing takes the
+        /// inner edge - and in the game that is a ledge. This doubles it outwards, which is the
+        /// only direction available: inwards is past the railing and over the fighting floor,
+        /// which is the one place a spectator must not be able to stand.</para>
+        ///
+        /// <para><b>With a gap where each ramp arrives.</b> A ramp climbs at the boardwalk's own
+        /// radius and meets the walkway from outside, so a continuous outer ring at walkway
+        /// height would be a ceiling over the top of it and the way up would stop working. The
+        /// gaps are found rather than worked out: the ramp boards have just been laid and their
+        /// positions handed over, so an outer board that lands near one is simply not laid.</para>
+        /// </summary>
+        private static int Widen(Vector3 centre, int deckHash, Bounds deck, List<Vector3> ramps)
+        {
+            float depth = Mathf.Max(0.5f, deck.size.z);
+            float radius = ArenaSite.Radius + depth;
+            int count = Mathf.Max(8, Mathf.RoundToInt(2f * Mathf.PI * radius /
+                                                      Mathf.Max(0.5f, deck.size.x)));
+
+            // A board's own depth and a little over, so a gap clears the ramp rather than
+            // brushing it. Squared, because that is how it is compared.
+            float clear = (depth + 0.5f) * (depth + 0.5f);
+
+            int made = 0, skipped = 0;
+
+            for (int i = 0; i < count; i++)
+            {
+                float bearing = i * 2f * Mathf.PI / count;
+                var outward = new Vector3(Mathf.Cos(bearing), 0f, Mathf.Sin(bearing));
+
+                var at = new Vector3(centre.x + outward.x * radius, 0f,
+                                     centre.z + outward.z * radius);
+
+                bool blocked = false;
+                foreach (Vector3 step in ramps)
+                {
+                    float dx = step.x - at.x, dz = step.z - at.z;
+                    if (dx * dx + dz * dz > clear) continue;
+
+                    blocked = true;
+                    break;
+                }
+
+                if (blocked) { skipped++; continue; }
+
+                at.y = ArenaRing.WallTopY(at) + Lift - deck.max.y;
+                Fixture.Place(deckHash, at, Quaternion.LookRotation(outward), StandPiece);
+                made++;
+            }
+
+            VersePlugin.Log.LogInfo(
+                $"arena: widened the gallery with {made} more board(s) at {radius:0.0} m, " +
+                $"{skipped} left out to keep the ways up clear");
+
+            return made;
+        }
+
+        /// <summary>A point on a circle of this radius about the centre, at this bearing.</summary>
         private static Vector3 On(Vector3 centre, float bearing, float radius) =>
             new Vector3(centre.x + Mathf.Cos(bearing) * radius, 0f,
                         centre.z + Mathf.Sin(bearing) * radius);

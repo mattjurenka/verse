@@ -31,6 +31,23 @@ namespace Verse
         /// <summary>Marks a piece as part of the venue's dressing.</summary>
         private static readonly int TrimPiece = "verse.arena.trim".GetStableHashCode();
 
+        /// <summary>
+        /// Which layout a standing piece was put up by, so an older one can be replaced.
+        ///
+        /// <para><b>Needed because the dressing's faults are not measurable.</b> The rest of the
+        /// venue is checked by arithmetic - is the walkway level, is the step shallow enough -
+        /// and anything wrong shows up as a number out of place. A banner mounted ninety degrees
+        /// off and a brazier standing a metre above the planks are both perfectly consistent
+        /// with every number the server can take; they came back as "the banners are rotated and
+        /// the braziers are in the air", from the game. So the dressing carries a version
+        /// instead, and this is bumped whenever its geometry changes - which is what makes a
+        /// venue that is already up pick the change up rather than keep the old look for
+        /// ever.</para>
+        /// </summary>
+        private const int Layout = 2;
+
+        private static readonly int TrimLayout = "verse.arena.trim.layout".GetStableHashCode();
+
         /// <summary>Metres of arc between banners, and between lights.</summary>
         private const float BannerEvery = 8f;
         private const float SconceEvery = 6f;
@@ -112,9 +129,16 @@ namespace Verse
             if (standing.Count > 0)
             {
                 float highest = float.MinValue;
-                foreach (ZDO zdo in standing) highest = Mathf.Max(highest, zdo.GetPosition().y);
+                int old = 0;
 
-                if (standing.Count == want && Mathf.Abs(highest - walkway) < Slack + 2f)
+                foreach (ZDO zdo in standing)
+                {
+                    highest = Mathf.Max(highest, zdo.GetPosition().y);
+                    if (zdo.GetInt(TrimLayout, 1) != Layout) old++;
+                }
+
+                if (standing.Count == want && old == 0 &&
+                    Mathf.Abs(highest - walkway) < Slack + 2f)
                 {
                     _dressed = true;
                     VersePlugin.Log.LogInfo(
@@ -129,7 +153,9 @@ namespace Verse
                 }
 
                 VersePlugin.Log.LogInfo(
-                    $"arena: took down {standing.Count} piece(s) of dressing - putting up {want}");
+                    $"arena: took down {standing.Count} piece(s) of dressing" +
+                    (old > 0 ? $", {old} of them from an older layout" : "") +
+                    $" - putting up {want}");
             }
 
             int made = 0;
@@ -147,17 +173,32 @@ namespace Verse
             // from the gallery and the fighting floor keeps nothing standing in it.
             if (brazierHash != 0)
             {
+                // Stood on its feet, which is where its mesh ends and not where its colliders
+                // do: the brazier's colliders reach a metre below the model - the fire's own
+                // area, most likely - and standing it on those left it hovering over the
+                // gallery with daylight under it, which is what the game showed. See
+                // Footing.Box's mesh option.
+                float feet = Footing.Box(brazierHash, true, out Bounds visible)
+                    ? visible.min.y
+                    : brazier.min.y;
+
+                VersePlugin.Log.LogInfo(
+                    $"arena: '{brazierName}' measures {brazier.min.y:0.00} m to " +
+                    $"{brazier.max.y:0.00} m by its colliders and {feet:0.00} m up by its mesh " +
+                    "- standing it on the mesh");
+
                 for (int i = 0; i < Braziers; i++)
                 {
                     float bearing = i * 2f * Mathf.PI / Braziers + Mathf.PI / Braziers;
                     var outward = new Vector3(Mathf.Cos(bearing), 0f, Mathf.Sin(bearing));
 
                     var at = new Vector3(centre.x + outward.x * (radius + 0.6f),
-                                         walkway - brazier.min.y,
+                                         walkway - feet,
                                          centre.z + outward.z * (radius + 0.6f));
 
                     ZDO lit = Fixture.Place(brazierHash, at, Quaternion.LookRotation(-outward),
                                             TrimPiece);
+                    lit?.Set(TrimLayout, Layout, okForNotOwner: true);
                     Light(lit, brazierHash);
                     made++;
                 }
@@ -176,27 +217,51 @@ namespace Verse
         /// Puts a row of wall-mounted pieces evenly around the inside of the wall, each one
         /// facing the floor.
         ///
-        /// <para>The facing comes from the prefab's own box: a piece that hangs on a wall is
-        /// lop-sided about its origin, and the heavy side is its front. So a box whose middle
-        /// sits forward of the origin is mounted with its forward axis pointing into the arena,
-        /// and one that sits behind it the other way round.</para>
+        /// <para><b>Which axis faces out of the wall is measured, and the first attempt got it
+        /// 90 degrees wrong.</b> A wall-mounted piece is thin in one horizontal direction - the
+        /// direction it mounts along - and wide in the other, because that is where the cloth or
+        /// the bracket is. So the <i>thinner</i> horizontal side of the box is the mounting axis,
+        /// and if that is the piece's own x rather than its z then <c>LookRotation</c>, which
+        /// aims z, needs a quarter turn after it. Banners went up edge-on to the arena until
+        /// this looked at which side was thin; the earlier version only looked at which side the
+        /// box leaned towards, which answers a different question - front or back, not which
+        /// axis.</para>
         /// </summary>
         private static int Hang(Vector3 centre, int hash, Bounds box, float inner, int count,
                                 float height)
         {
+            // The thin horizontal axis is the one the piece mounts along.
+            bool mountsAlongZ = box.size.z <= box.size.x;
+
+            // And which way along it is the front: the side the box's own middle leans towards.
+            float lean = mountsAlongZ ? box.center.z : box.center.x;
+
+            VersePlugin.Log.LogInfo(
+                $"arena: a wall piece measuring {box.size.x:0.00} x {box.size.y:0.00} x " +
+                $"{box.size.z:0.00} m mounts along its own {(mountsAlongZ ? "z" : "x")}, " +
+                $"{(lean >= 0f ? "front first" : "back first")} - {count} of them");
+
             int made = 0;
 
             for (int i = 0; i < count; i++)
             {
                 float bearing = i * 2f * Mathf.PI / count;
                 var outward = new Vector3(Mathf.Cos(bearing), 0f, Mathf.Sin(bearing));
-                Vector3 facing = box.center.z >= 0f ? -outward : outward;
+
+                // The mounting axis has to end up pointing into the arena, front first.
+                Vector3 facing = lean >= 0f ? -outward : outward;
+                Quaternion rotation = Quaternion.LookRotation(facing);
+
+                // LookRotation aims the piece's z. If the piece mounts along its x instead, turn
+                // it a quarter so that x ends up where z was.
+                if (!mountsAlongZ) rotation *= Quaternion.Euler(0f, -90f, 0f);
 
                 var at = new Vector3(centre.x + outward.x * (inner - 0.1f),
                                      height,
                                      centre.z + outward.z * (inner - 0.1f));
 
-                ZDO piece = Fixture.Place(hash, at, Quaternion.LookRotation(facing), TrimPiece);
+                ZDO piece = Fixture.Place(hash, at, rotation, TrimPiece);
+                piece?.Set(TrimLayout, Layout, okForNotOwner: true);
                 Light(piece, hash);
                 made++;
             }

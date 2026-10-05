@@ -69,11 +69,27 @@ namespace Verse
         /// along the inside of a wall needs - the wall's thickness decides where the inside
         /// is.
         /// </summary>
-        internal static bool Box(int prefabHash, out Bounds local)
+        internal static bool Box(int prefabHash, out Bounds local) =>
+            Box(prefabHash, false, out local);
+
+        /// <summary>
+        /// The same box, optionally measured from the prefab's <i>meshes</i> rather than its
+        /// colliders.
+        ///
+        /// <para><b>Which one is right depends on the question.</b> For a thing standing on a
+        /// surface the answer is "where does it look like it touches", and that is the mesh: a
+        /// brazier's colliders turned out to reach well below its feet - the fire's own area,
+        /// probably - so standing it on its collider floor left it hovering a metre above the
+        /// gallery, which is what the game showed. For a thing the game stands other things on,
+        /// the collider is the honest answer, because that is the surface physics uses.</para>
+        /// </summary>
+        internal static bool Box(int prefabHash, bool meshes, out Bounds local)
         {
             local = default(Bounds);
 
-            if (Known.TryGetValue(prefabHash, out Bounds? cached))
+            int key = meshes ? ~prefabHash : prefabHash;
+
+            if (Known.TryGetValue(key, out Bounds? cached))
             {
                 if (!cached.HasValue) return false;
                 local = cached.Value;
@@ -89,12 +105,13 @@ namespace Verse
             var lo = new Vector3(float.MaxValue, float.MaxValue, float.MaxValue);
             var hi = new Vector3(float.MinValue, float.MinValue, float.MinValue);
 
-            foreach (Collider c in prefab.GetComponentsInChildren<Collider>(true))
-            {
-                if (c == null || c.isTrigger || Effect(c.name)) continue;
-                if (!Shape(c, out Bounds box)) continue;
-                Span(prefab.transform, c.transform, box, ref lo, ref hi);
-            }
+            if (!meshes)
+                foreach (Collider c in prefab.GetComponentsInChildren<Collider>(true))
+                {
+                    if (c == null || c.isTrigger || Effect(c.name)) continue;
+                    if (!Shape(c, out Bounds box)) continue;
+                    Span(prefab.transform, c.transform, box, ref lo, ref hi);
+                }
 
             if (lo.y > hi.y)
             {
@@ -107,12 +124,12 @@ namespace Verse
 
             if (lo.y > hi.y)
             {
-                Known[prefabHash] = null;
+                Known[key] = null;
                 return false;
             }
 
             local = new Bounds((lo + hi) * 0.5f, hi - lo);
-            Known[prefabHash] = local;
+            Known[key] = local;
             return true;
         }
 

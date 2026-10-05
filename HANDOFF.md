@@ -136,6 +136,25 @@ tilted against the climb — a perfectly good 20° slope leaning backwards — a
 side everything measured correctly. `ArenaSelfTest` now compares each board's own surface normal
 against the direction its own ramp ascends, which is the check that has teeth.
 
+### A prefab's colliders are not where it looks like it stands
+
+`piece_brazierfloor01` measures **-2.70 m to +1.30 m by its colliders** and only -1.06 m down by
+its mesh — the colliders include the fire's own area, well below the model's feet. Standing it on
+its collider floor therefore left it hovering 2.7 m above the gallery, which is what the game
+showed. `Footing.Box(hash, meshes: true)` measures from `MeshFilter` bounds instead, and that is
+the right question for *a thing standing on a surface*; the collider is still the right question
+for *a surface other things stand on*. Both are cached separately.
+
+### The dressing carries a layout version, because its faults are not measurable
+
+A banner mounted 90° off and a brazier a metre in the air are both perfectly consistent with
+every number the server can take — the self-test cannot catch them, and only the game can. So
+`ArenaTrim` stamps each piece with a `Layout` constant and replaces anything standing from an
+older one. Bump it whenever the dressing's geometry changes, or a venue that is already up keeps
+the old look for ever. (Which way a wall piece mounts *is* measurable: the thin horizontal side
+of its box is the mounting axis, and `LookRotation` aims z — so a piece that mounts along its own
+x needs a quarter turn after it. That was the 90°.)
+
 ### Fires can be kept lit from the server
 
 A torch, sconce or brazier is a `Fireplace`, and its fuel is `ZDOVars.s_fuel` on its own ZDO,
