@@ -649,7 +649,9 @@ namespace Verse
             Check($"the gallery is up ({gallery.Count} piece(s))", gallery.Count > 0);
             if (gallery.Count == 0) return;
 
-            float top = ArenaRing.WallTopY(centre);
+            // The wall's top on the ladder's own bearing, which is the walkway the ladder has to
+            // reach - not the nominal height at the middle of the arena, where there is no wall.
+            float top = ArenaRing.WallTopY(ArenaStand.LadderFoot(centre));
 
             int rails = 0;
             int railHash = (VersePlugin.ArenaRailPrefab.Value ?? "").Trim().GetStableHashCode();

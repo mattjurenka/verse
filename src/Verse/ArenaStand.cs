@@ -128,12 +128,27 @@ namespace Verse
             if (!Measured(railName, railHash, out Bounds rail)) return 0;
 
             float radius = ArenaSite.Radius;
-            float top = ArenaRing.WallTopY(centre);
-            float surface = top + Lift;
 
             // The walkway, centred on the wall's own circle so it overhangs both faces.
             int decks = Mathf.Max(8, Mathf.RoundToInt(2f * Mathf.PI * radius /
                                                       Mathf.Max(0.5f, deck.size.x)));
+
+            // Each board's own surface, taken from the wall underneath it rather than from one
+            // height for the whole ring: the wall follows the ground wherever the ground could
+            // not be flattened, and a level walkway over an unlevel wall is either buried in it
+            // or floating over it. See ArenaRing.WallTopY.
+            var surfaces = new float[decks];
+            float highest = float.MinValue;
+
+            for (int i = 0; i < decks; i++)
+            {
+                float angle = i * 2f * Mathf.PI / decks;
+                var on = new Vector3(centre.x + Mathf.Cos(angle) * radius, 0f,
+                                     centre.z + Mathf.Sin(angle) * radius);
+
+                surfaces[i] = ArenaRing.WallTopY(on) + Lift;
+                highest = Mathf.Max(highest, surfaces[i]);
+            }
 
             // The railing, just inside the walkway's inner edge.
             float railRadius = radius - deck.size.z * 0.5f + rail.size.z * 0.5f;
@@ -162,7 +177,8 @@ namespace Verse
                     walkway = Mathf.Max(walkway, zdo.GetPosition().y + deck.max.y);
                 }
 
-                if (boards >= decks && Mathf.Abs(walkway - surface) < Slack)
+                // Highest against highest, because the walkway is no longer one height.
+                if (boards >= decks && Mathf.Abs(walkway - highest) < Slack)
                 {
                     _built = true;
                     VersePlugin.Log.LogInfo(
@@ -178,8 +194,8 @@ namespace Verse
                 }
 
                 VersePlugin.Log.LogInfo(
-                    $"arena: took down {standing.Count} gallery piece(s) - rebuilding it at " +
-                    $"{surface:0.0} m");
+                    $"arena: took down {standing.Count} gallery piece(s) - rebuilding it, " +
+                    $"topping out at {highest:0.0} m");
             }
 
             int made = 0;
@@ -190,7 +206,7 @@ namespace Verse
                 var outward = new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle));
 
                 var at = new Vector3(centre.x + outward.x * radius,
-                                     surface - deck.max.y,
+                                     surfaces[i] - deck.max.y,
                                      centre.z + outward.z * radius);
 
                 Fixture.Place(deckHash, at, Quaternion.LookRotation(outward), StandPiece);
@@ -202,23 +218,28 @@ namespace Verse
                 float angle = i * 2f * Mathf.PI / rails;
                 var outward = new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle));
 
-                // Standing on the walkway, so its own base goes on the surface - not its origin.
-                var at = new Vector3(centre.x + outward.x * railRadius,
-                                     surface - rail.min.y,
+                // On the walkway beside it, which is why this asks the wall again rather than
+                // reusing a board's height: there are more rails than boards, or fewer, and the
+                // two rings do not line up.
+                var on = new Vector3(centre.x + outward.x * railRadius, 0f,
                                      centre.z + outward.z * railRadius);
+                float surface = ArenaRing.WallTopY(on) + Lift;
+
+                // Standing on the walkway, so its own base goes on the surface - not its origin.
+                var at = new Vector3(on.x, surface - rail.min.y, on.z);
 
                 Fixture.Place(railHash, at, Quaternion.LookRotation(outward), StandPiece);
                 made++;
             }
 
-            made += Climb(centre, ladderName, surface, deckHash, deck);
+            made += Climb(centre, ladderName, deckHash, deck);
 
             _built = made > 0;
 
             VersePlugin.Log.LogInfo(
-                $"arena: built the gallery - {decks} board(s) of walkway on top of the wall at " +
-                $"{surface:0.0} m, {rails} piece(s) of {railName} railing at {railRadius:0.0} m, " +
-                $"and a ladder up the outside");
+                $"arena: built the gallery - {decks} board(s) of walkway on top of the wall, " +
+                $"topping out at {highest:0.0} m, {rails} piece(s) of {railName} railing at " +
+                $"{railRadius:0.0} m, and a ladder up the outside");
 
             return made;
         }
@@ -231,8 +252,7 @@ namespace Verse
         /// not the piece's height and need not be: what matters is that each step lands on the
         /// next piece, so the stack is spaced by the lift and not by the model.</para>
         /// </summary>
-        private static int Climb(Vector3 centre, string name, float surface,
-                                 int deckHash, Bounds deck)
+        private static int Climb(Vector3 centre, string name, int deckHash, Bounds deck)
         {
             if (name.Length == 0) return 0;
 
@@ -280,6 +300,13 @@ namespace Verse
             float x = centre.x + outward.x * radius;
             float z = centre.z + outward.z * radius;
             float ground = ArenaSite.HeightAt(x, z);
+
+            // The walkway's height here, which is the wall's height here plus the planks - asked
+            // at the wall's own radius on this bearing, not at the ladder's, because the wall is
+            // what the walkway is laid on.
+            float surface = ArenaRing.WallTopY(
+                new Vector3(centre.x + outward.x * ArenaSite.Radius, 0f,
+                            centre.z + outward.z * ArenaSite.Radius)) + Lift;
 
             // Enough lifts to reach the walkway. Each piece's base is below it by construction,
             // because (steps - 1) lifts is less than the climb, so none of them stands on the

@@ -406,41 +406,22 @@ namespace Verse
             Footing.Box(Wall().Prefab.GetStableHashCode(), out Bounds box) ? box.size.z : 1f;
 
         /// <summary>
-        /// The height of the top of the wall, where the gallery goes.
+        /// The height of the top of the wall above one point on the ground - where a plank of
+        /// gallery laid there has to sit.
         ///
-        /// <para>Measured off the wall that is standing, when one is: the top of its highest
-        /// course, which is that piece's own middle plus half a row. The arithmetic - ground,
-        /// less the buried <see cref="Sink"/>, plus <see cref="Rows"/> rows - is only the
-        /// fallback for a ring that has not been built yet.</para>
-        ///
-        /// <para>The difference is not academic. On the first live deploy the ring predated the
-        /// levelled floor and stood 1.2 m below where the arithmetic said, so a gallery laid at
-        /// the arithmetic's answer would have been a walkway hanging over the stone it was
-        /// supposed to rest on. What the gallery needs is the height of the wall that is
-        /// actually there.</para>
+        /// <para><b>Per point, because the wall is not necessarily level.</b>
+        /// <see cref="Raise"/> places every segment from the ground under that segment, so the
+        /// top of the wall follows the ground too - and the ground is only flat where
+        /// <see cref="Ground.Level"/> could flatten it. The live site has 38 vertices that
+        /// vanilla's 8 m ceiling would not let it move, and across those the wall rides up with
+        /// the hill. Two earlier versions of this each took one global number and each was
+        /// wrong in its own direction: the nominal height left the walkway inside the stone
+        /// where the hill shows through, and the highest standing course left it hanging four
+        /// metres over the rest of the ring. The same formula the wall was built from, asked at
+        /// the point in question, is the one answer that follows it.</para>
         /// </summary>
-        internal static float WallTopY(Vector3 centre)
-        {
-            float theory = ArenaSite.HeightAt(centre.x, centre.z) + Sink + Wall().Height * Rows;
-
-            Dictionary<ZDOID, ZDO> all = All();
-            if (all == null) return theory;
-
-            // This site's own ring, not a stray from a site the arena has since moved off.
-            float reach = ArenaSite.Radius + 8f;
-            float highest = float.MinValue;
-
-            foreach (ZDO zdo in Standing(all))
-            {
-                Vector3 p = zdo.GetPosition();
-                float dx = p.x - centre.x, dz = p.z - centre.z;
-                if (dx * dx + dz * dz > reach * reach) continue;
-
-                if (p.y > highest) highest = p.y;
-            }
-
-            return highest > float.MinValue ? highest + Wall().Height * 0.5f : theory;
-        }
+        internal static float WallTopY(Vector3 at) =>
+            ArenaSite.HeightAt(at.x, at.z) + Sink + Wall().Height * Rows;
 
         /// <summary>The ring's own pieces, wherever they are and whatever they are made of.</summary>
         private static List<ZDO> Standing(Dictionary<ZDOID, ZDO> all)
