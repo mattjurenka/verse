@@ -77,6 +77,10 @@ namespace Verse
         internal static ConfigEntry<bool> ArenaGallery;
         internal static ConfigEntry<string> ArenaRailPrefab;
         internal static ConfigEntry<bool> ArenaUnbreakable;
+        internal static ConfigEntry<bool> ArenaTrim;
+        internal static ConfigEntry<string> ArenaBannerPrefab;
+        internal static ConfigEntry<string> ArenaSconcePrefab;
+        internal static ConfigEntry<string> ArenaBrazierPrefab;
         internal static ConfigEntry<bool> ArenaEnforceKit;
         internal static ConfigEntry<bool> ArenaTrace;
         internal static ConfigEntry<bool> ArenaRested;
@@ -379,6 +383,23 @@ namespace Verse
                 "the wall, which is a hole a fighter can leave through and a spectator can " +
                 "come in through, and a deposit chest can be smashed with somebody's gear in " +
                 "it. Off restores vanilla health for pieces built from then on.");
+            ArenaTrim = Config.Bind("Arena", "ArenaTrim", true,
+                "Dress the venue: banners down the inside of the wall, sconces to light the " +
+                "fighting floor, and braziers along the gallery. The lights are real " +
+                "fireplaces, and a fireplace burns fuel - which is a field on its own ZDO, so " +
+                "the server fills them up again at boot and at the start of every run. " +
+                "Cosmetic, except that an arena nobody can see at night is not much of a " +
+                "stage.");
+            ArenaBannerPrefab = Config.Bind("Arena", "ArenaBannerPrefab", "piece_banner04",
+                "The banner hung around the inside of the wall; vanilla's red one by default. " +
+                "Empty hangs none. Which way round it mounts is measured off the prefab, not " +
+                "assumed.");
+            ArenaSconcePrefab = Config.Bind("Arena", "ArenaSconcePrefab", "piece_walltorch",
+                "The wall light inside the ring - vanilla's Sconce. Empty fits none.");
+            ArenaBrazierPrefab = Config.Bind("Arena", "ArenaBrazierPrefab", "piece_brazierfloor01",
+                "The standing light on the gallery - vanilla's Standing Brazier. It is up on " +
+                "the walkway rather than on the floor so that nothing is standing in the way " +
+                "of a fight. Empty stands none.");
             ArenaEnforceKit = Config.Bind("Arena", "ArenaEnforceKit", true,
                 "Require that everything a fighter is wearing or holding came out of the kit, " +
                 "checked at the gate and again while they fight. Only the visible equipment " +
@@ -486,6 +507,11 @@ namespace Verse
                     ArenaRing.Ensure();
                     ArenaApron.Ensure();
                     ArenaStand.Ensure();
+                    // Fully qualified: this class also has a config entry called ArenaTrim.
+                    Verse.ArenaTrim.Ensure();
+
+                    int lit = Verse.ArenaTrim.Fuel();
+                    if (lit > 0) Log.LogInfo($"arena: filled {lit} fire(s) back up");
 
                     // After the venue is up, and whatever built it: "unbreakable" is a property
                     // of the arena, not of the code path that happened to place a piece. See

@@ -780,8 +780,10 @@ namespace Verse
             // after one scan of the table when nothing has changed.
             ArenaApron.Forget();
             ArenaStand.Forget();
+            ArenaTrim.Forget();
             ArenaApron.Ensure();
             ArenaStand.Ensure();
+            ArenaTrim.Ensure();
 
             VersePlugin.Log.LogInfo(
                 $"arena: rebuilt the ring - {standing.Count} piece(s) down, {made} piece(s) of " +

@@ -127,6 +127,24 @@ gap. The walkway and railing are flat rings with it — measured spread 0.00 m. 
 `ArenaUnbreakable` off it goes back to following the terrain, because a venue that falls over is
 worse than one with a stepped top.
 
+### `Cross(Vector3.up, radial)` points the wrong way round a circle
+
+Worth writing down because it shipped: `Vector3.Cross(Vector3.up, radial)` is the *opposite* of
+the direction positions move in as a bearing increases; the one you want is
+`Vector3.Cross(radial, Vector3.up)`. With the sign wrong, the arena's ramp boards were each
+tilted against the climb — a perfectly good 20° slope leaning backwards — and from the server
+side everything measured correctly. `ArenaSelfTest` now compares each board's own surface normal
+against the direction its own ramp ascends, which is the check that has teeth.
+
+### Fires can be kept lit from the server
+
+A torch, sconce or brazier is a `Fireplace`, and its fuel is `ZDOVars.s_fuel` on its own ZDO,
+burned down against `s_lastTime` (`m_maxFuel`, `m_secPerFuel` and `m_infiniteFuel` are all on the
+prefab, so read them rather than assuming). So the server can keep a venue lit indefinitely by
+refilling the field — `ArenaTrim.Fuel` does it at boot and at every run start. **Write
+`s_lastTime` with it**: a fireplace that has been "full" since this morning burns its entire
+load catching up the moment a client loads the zone.
+
 ### Things people have to walk up must be ramps, not steps
 
 Separate level plates 0.4 m apart are not a stair: between them there is nothing to walk onto,

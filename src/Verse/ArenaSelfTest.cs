@@ -688,13 +688,21 @@ namespace Verse
             // which is the only reliable way to tell them apart - an earlier version of this
             // went by height and counted 164 steps in a ten-step stair.
             var climb = new List<Vector3>();
+            var tilt = new List<Vector3>();
 
             foreach (ZDO piece in gallery)
             {
                 if (piece.GetPrefab() == railHash) rails++;
                 if (piece.GetPrefab() != boardHash) continue;
 
-                if (ArenaStand.IsStep(piece)) climb.Add(piece.GetPosition());
+                if (!ArenaStand.IsStep(piece)) continue;
+
+                climb.Add(piece.GetPosition());
+
+                // The board's own surface normal, which is where the last round's bug lived:
+                // the boards were tilted across the climb instead of along it, and "the ramp is
+                // angled the wrong way" was the only way to find out.
+                tilt.Add(piece.GetRotation() * Vector3.up);
             }
 
             Check($"{rails} piece(s) of railing stand along the inside of its top", rails > 0);
@@ -761,7 +769,57 @@ namespace Verse
                     steepest = Mathf.Max(steepest, Mathf.Atan2(b.y - a.y, flat) * Mathf.Rad2Deg);
             }
 
+            // Two ramps on opposite sides, so nobody walks half the ring to get up. Told apart
+            // by which side of the arena they are on rather than by counting: the pieces carry
+            // no bearing, and two ramps are two clusters.
+            int near = 0, far = 0;
+            Vector3 foot = ArenaStand.StairFoot(centre);
+
+            foreach (Vector3 p in climb)
+            {
+                float dx = p.x - foot.x, dz = p.z - foot.z;
+                if (dx * dx + dz * dz < (ArenaSite.Radius * ArenaSite.Radius)) near++;
+                else far++;
+            }
+
             Check($"a ramp of {climb.Count} board(s) climbs to the gallery", climb.Count >= 2);
+            Check($"and there are two of them, on opposite sides ({near} board(s) by the near " +
+                  $"one, {far} by the far)", near >= 2 && far >= 2);
+
+            // Every board has to lean back against the climb. A ramp whose boards tilt the other
+            // way is the thing that went into the game last round, and from the server it looked
+            // like a perfectly good 20-degree slope: the angle was right and the direction was
+            // not. This compares each board's own normal with the way its own ramp is going.
+            int backwards = 0;
+            for (int i = 0; i < climb.Count; i++)
+            {
+                // The nearest board that is higher up the same ramp.
+                int next = -1;
+                float gap = float.MaxValue;
+
+                for (int j = 0; j < climb.Count; j++)
+                {
+                    if (climb[j].y <= climb[i].y + 0.05f) continue;
+
+                    float d = (climb[j] - climb[i]).sqrMagnitude;
+                    if (d >= gap || d > 16f) continue;
+
+                    gap = d;
+                    next = j;
+                }
+
+                if (next < 0) continue;
+
+                Vector3 ascent = climb[next] - climb[i];
+                var flat = new Vector2(ascent.x, ascent.z).normalized;
+                var lean = new Vector2(tilt[i].x, tilt[i].z);
+
+                // Leaning back means the normal's horizontal part opposes the ascent.
+                if (Vector2.Dot(lean, flat) > 0.05f) backwards++;
+            }
+
+            Check($"and every board leans back against the climb, so it is a ramp and not a " +
+                  $"row of shelves ({backwards} tilted the wrong way)", backwards == 0);
             Check($"and it is shallow enough to walk up ({steepest:0.#} degrees at its steepest)",
                   climb.Count >= 2 && steepest <= 30f);
 
@@ -781,7 +839,6 @@ namespace Verse
 
             // Where watch() puts a spectator: outside the wall, inside the cleared venue, and
             // never on the fighting floor.
-            Vector3 foot = ArenaStand.StairFoot(centre);
             Check("a spectator lands outside the ring", !ArenaSite.Inside(foot));
             Check("and still inside the cleared venue", Arena.InClearing(foot));
 
@@ -799,6 +856,31 @@ namespace Verse
                       : $"a spectator is kept warm with '{frost}', read off the kit's own mead" +
                         (ArenaSite.Cold ? "" : " (not needed at this site, which does not freeze)"),
                   !ArenaSite.Cold || !string.IsNullOrEmpty(frost));
+
+            // The dressing, and the one part of it with a mechanism rather than a look: a
+            // fireplace burns its fuel down, so an arena lit when it was built is an arena in
+            // the dark by the evening. The fuel is a ZDO field, so the server fills it - and
+            // this is the check that it did, because the symptom otherwise is somebody fighting
+            // in the dark and nobody knowing why.
+            if (VersePlugin.ArenaTrim.Value)
+            {
+                List<ZDO> trim = ArenaTrim.Standing();
+                Check($"the venue is dressed ({trim.Count} banner(s), sconce(s) and brazier(s))",
+                      trim.Count > 0);
+
+                int fires = 0, dark = 0;
+                foreach (ZDO piece in trim)
+                {
+                    GameObject prefab = ZNetScene.instance.GetPrefab(piece.GetPrefab());
+                    Fireplace fire = prefab?.GetComponent<Fireplace>();
+                    if (fire == null || fire.m_infiniteFuel) continue;
+
+                    fires++;
+                    if (piece.GetFloat(ZDOVars.s_fuel, 0f) < fire.m_maxFuel - 0.01f) dark++;
+                }
+
+                Check($"and every one of its {fires} fire(s) is fuelled ({dark} empty)", dark == 0);
+            }
 
             if (!VersePlugin.ArenaUnbreakable.Value) return;
 

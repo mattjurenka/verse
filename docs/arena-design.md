@@ -391,6 +391,8 @@ broadcast with `GlobalChat`, which already crosses verses.
 | `ArenaGallery` | `true` | the walkway on top of the wall, its two courses of iron railing, and the ramp up to it |
 | `ArenaRailPrefab` | `iron_wall_2x2` | vanilla's Cage Wall: iron bars, see-through and solid, which is the only reason a gallery over the floor is safe to offer |
 | `ArenaUnbreakable` | `true` | write an unreachable health into every fixture and the gate chests. Vanilla has no indestructible flag; health is a field on the ZDO, so this is a number the server owns |
+| `ArenaTrim` | `true` | dress the venue: banners and sconces down the inside of the wall, braziers along the gallery. The lights are real `Fireplace`s and fuel is a ZDO field, so the server refills them at boot and at every run start |
+| `ArenaBannerPrefab` / `ArenaSconcePrefab` / `ArenaBrazierPrefab` | `piece_banner04` / `piece_walltorch` / `piece_brazierfloor01` | the dressing's pieces; any of them empty fits none of that kind. Which way a wall-mounted piece faces is measured off its own lop-sided box, not assumed |
 | `ArenaWaves` | `10` | |
 | `ArenaMultiplierCap` | `4.0` | |
 | `ArenaKeepKit` | `true` | the faucet, deliberately |
@@ -467,6 +469,16 @@ Built, in `src/Verse`:
   second offset half a piece around the ring so its bars fall between the first's rather than
   coplanar with them: 2.7 m of iron over the walkway, after one course came back as "you can
   barely jump over them".
+- **`ArenaTrim.cs`** — the venue's dressing: banners and sconces down the inside of the wall,
+  braziers along the gallery. Cosmetic except for one mechanism — a torch or brazier is a
+  `Fireplace`, and a `Fireplace` burns `ZDOVars.s_fuel` down against `s_lastTime`, so an arena
+  lit when it was built is an arena in the dark by the evening. The fuel is a field on a ZDO the
+  server owns (the same fact the gate chests rest on), so it is simply refilled at boot and at
+  every run start, timestamp included — a fire that has been full since this morning otherwise
+  burns its whole load catching up the moment somebody loads the zone. Which way a wall-mounted
+  piece faces is read off its own box: a banner hangs on one side of its mounting point, so the
+  lop-sidedness says which side is the front. That is the third time a prefab's facing has
+  mattered here, after a ladder that could not be climbed and a ramp tilted the wrong way.
 - **`Footing.cs`** — how far a prefab reaches below and above its own origin, measured off its
   colliders (meshes as a fallback) and cached. A ZDO's position is the prefab's origin, and
   where that sits inside the object is per-prefab: `wood_floor`'s is 0.10 m under its walking

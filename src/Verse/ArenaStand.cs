@@ -102,6 +102,14 @@ namespace Verse
         private static float _bearing;
         private static Vector3 _bearingAt = new Vector3(float.NaN, float.NaN, float.NaN);
 
+        /// <summary>
+        /// Where the second way up starts: opposite the first.
+        ///
+        /// <para>One ramp means that wherever somebody lands, half the time they walk the long
+        /// way round a 26 m circle to use it. Two cost nine boards each.</para>
+        /// </summary>
+        private static float FarBearing => StairBearing + Mathf.PI;
+
         /// <summary>How far the railing's base is sunk below the walkway, to close the seam.</summary>
         private const float RailSink = 0.3f;
 
@@ -230,7 +238,9 @@ namespace Verse
                 // older build is noticed. The bearing is chosen from the ground rather than
                 // written down, so it moves when the ground does.
                 Vector3 foot = StairFoot(centre);
-                bool atFoot = false;
+                Vector3 far = On(centre, FarBearing,
+                                 ArenaSite.Radius + ArenaRing.WallThickness * 0.5f + 2f);
+                bool atFoot = false, atFar = false;
 
                 foreach (ZDO zdo in standing)
                 {
@@ -245,6 +255,9 @@ namespace Verse
                         Vector3 p = zdo.GetPosition();
                         float dx = p.x - foot.x, dz = p.z - foot.z;
                         if (dx * dx + dz * dz < 25f) atFoot = true;
+
+                        float fx = p.x - far.x, fz = p.z - far.z;
+                        if (fx * fx + fz * fz < 25f) atFar = true;
 
                         continue;
                     }
@@ -267,7 +280,7 @@ namespace Verse
                 // The stair counts too: a gallery with no way up is not a gallery, and this is
                 // how a ladder or a flight of steps from an older build gets replaced rather
                 // than left standing beside the ramp.
-                if (boards >= decks && steps >= 2 && atFoot &&
+                if (boards >= decks && steps >= 2 && atFoot && atFar &&
                     Mathf.Abs(walkway - highest) < Slack && Mathf.Abs(under - lowest) < Slack)
                 {
                     _built = true;
@@ -343,7 +356,10 @@ namespace Verse
                 made++;
             }
 
-            made += Ramp(centre, deckHash, deck);
+            // Two ways up, on opposite sides, so nobody walks half the circumference of the
+            // arena to get to the gallery - which is what one ramp means wherever you land.
+            made += Ramp(centre, StairBearing, deckHash, deck);
+            made += Ramp(centre, FarBearing, deckHash, deck);
 
             _built = made > 0;
 
@@ -376,7 +392,7 @@ namespace Verse
         /// at <see cref="MaxSlope"/>, well under where Valheim starts sliding you back down - is
         /// the only thing that has to be right.</para>
         /// </summary>
-        private static int Ramp(Vector3 centre, int deckHash, Bounds deck)
+        private static int Ramp(Vector3 centre, float from, int deckHash, Bounds deck)
         {
             // Shallower than anything Valheim slides you down, and shallower than it needs to be:
             // a spectator climbing to the gallery is not a challenge to be set.
@@ -395,14 +411,14 @@ namespace Verse
             // either way, but the ground is not: sweeping towards the higher ground is the
             // shorter ramp.
             float probe = 10f / radius;
-            Vector3 sunwise = On(centre, StairBearing + probe, radius);
-            Vector3 widdershins = On(centre, StairBearing - probe, radius);
+            Vector3 sunwise = On(centre, from + probe, radius);
+            Vector3 widdershins = On(centre, from - probe, radius);
             float sweep = ArenaSite.HeightAt(widdershins.x, widdershins.z) >
                           ArenaSite.HeightAt(sunwise.x, sunwise.z) ? -1f : 1f;
 
-            Vector3 foot = On(centre, StairBearing, radius);
+            Vector3 foot = On(centre, from, radius);
             float bottom = ArenaSite.HeightAt(foot.x, foot.z);
-            float walkway = ArenaRing.WallTopY(On(centre, StairBearing, ArenaSite.Radius)) + Lift;
+            float walkway = ArenaRing.WallTopY(On(centre, from, ArenaSite.Radius)) + Lift;
 
             float climb = walkway - bottom;
             if (climb <= 0.1f) return 0;
@@ -418,9 +434,15 @@ namespace Verse
             {
                 // Half a step along from the bottom of this board's own span, so the board is
                 // centred on the piece of ramp it is paving.
-                float bearing = StairBearing + sweep * (i + 0.5f) * Run / radius;
+                float bearing = from + sweep * (i + 0.5f) * Run / radius;
                 var along = new Vector3(Mathf.Cos(bearing), 0f, Mathf.Sin(bearing));
-                Vector3 tangent = Vector3.Cross(Vector3.up, along) * sweep;
+
+                // The way the ramp is actually travelling. Cross(up, radial) points the other
+                // way round the circle from increasing bearing, and using it tilted every board
+                // backwards: the report from the game was "the ramp is angled the wrong way",
+                // which is exactly what a flight of boards each sloping against the climb looks
+                // like. Cross(radial, up) is the direction the positions move in.
+                Vector3 tangent = Vector3.Cross(along, Vector3.up) * sweep;
 
                 // Up the slope, and the surface normal perpendicular to it. LookRotation maps
                 // the piece's own forward onto the first and its own up onto the second.
