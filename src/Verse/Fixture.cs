@@ -91,6 +91,31 @@ namespace Verse
             return true;
         }
 
+        private static System.Reflection.FieldInfo _doomed;
+
+        /// <summary>
+        /// Whether a ZDO has already been told to go, and is only still in the object table
+        /// because the telling has not been sent yet.
+        ///
+        /// <para><b>Needed because <c>ZDOMan.DestroyZDO</c> only queues an id.</b> The object
+        /// stays in <c>m_objectsByID</c>, readable, until <c>SendDestroyed</c> runs on the next
+        /// <c>ZDOMan</c> update - so anything that tears a fixture down and then counts what is
+        /// standing counts the pieces it just destroyed as well as the ones it just built. That
+        /// mistake has now been made three times in this plugin: a gallery reported as 334
+        /// pieces, a nine-step stair reported as seventeen, and a walkway that reads as three
+        /// metres out of level in the frame it was relaid flat. The queue is private, which is
+        /// why this is reflection rather than an ordinary question.</para>
+        /// </summary>
+        internal static bool Doomed(ZDO zdo)
+        {
+            if (zdo == null || ZDOMan.instance == null) return false;
+
+            _doomed = _doomed ?? AccessTools.Field(typeof(ZDOMan), "m_destroySendList");
+            var queued = _doomed?.GetValue(ZDOMan.instance) as System.Collections.Generic.List<ZDOID>;
+
+            return queued != null && queued.Contains(zdo.m_uid);
+        }
+
         private static System.Reflection.MethodInfo _destroy;
         private static readonly object[] DestroyArgs = new object[1];
 

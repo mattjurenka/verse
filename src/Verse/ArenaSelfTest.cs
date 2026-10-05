@@ -699,13 +699,47 @@ namespace Verse
 
             Check($"{rails} piece(s) of railing stand along the inside of its top", rails > 0);
 
+            // The walkway is level now, because the wall's top is. That is the fix for the
+            // wedge-shaped gaps that opened under every railing piece where the old
+            // terrain-following wall stepped - so the flatness is the thing to assert, and the
+            // number to watch if they ever come back.
+            float lowBoard = float.MaxValue, highBoard = float.MinValue;
+            foreach (ZDO piece in gallery)
+            {
+                if (piece.GetPrefab() != boardHash || ArenaStand.IsStep(piece)) continue;
+
+                float y = piece.GetPosition().y;
+                lowBoard = Mathf.Min(lowBoard, y);
+                highBoard = Mathf.Max(highBoard, y);
+            }
+
+            if (VersePlugin.ArenaUnbreakable.Value)
+                Check($"the walkway is one flat ring, so nothing can gap at a step " +
+                      $"({highBoard - lowBoard:0.00} m between its lowest and highest board)",
+                      highBoard - lowBoard < 0.05f);
+
             // Valheim's jump clears about 1.2 m, so this is the number that decides whether the
-            // railing is a barrier or a kerb.
+            // railing is a barrier or a kerb - and one course of bars came back from the game as
+            // "you can barely jump over them", so there are two courses now. Measured as the
+            // real thing: the tallest railing piece's top against the walkway it stands on.
             bool measured = Footing.Box(railHash, out Bounds rail);
+            float barsTop = float.MinValue, walkwayAt = float.MinValue;
+
+            foreach (ZDO piece in gallery)
+            {
+                if (piece.GetPrefab() == railHash)
+                    barsTop = Mathf.Max(barsTop, piece.GetPosition().y + (measured ? rail.max.y : 0f));
+                else if (piece.GetPrefab() == boardHash && !ArenaStand.IsStep(piece))
+                    walkwayAt = Mathf.Max(walkwayAt, piece.GetPosition().y +
+                                                     (Footing.Box(boardHash, out Bounds b) ? b.max.y : 0f));
+            }
+
+            float bars = barsTop - walkwayAt;
             Check(measured
-                      ? $"the railing is {rail.size.y:0.0} m tall, which is more than a jump"
+                      ? $"the railing stands {bars:0.0} m over the walkway, which nobody jumps " +
+                        $"(two courses of {rail.size.y:0.0} m bars)"
                       : "the railing could be measured",
-                  measured && rail.size.y > 1.5f);
+                  measured && bars > 2.5f);
 
             // The way up, and the one number that decides whether it is a way up at all: a step
             // a player cannot walk over is a wall. The ladder this replaced failed in the game
@@ -714,13 +748,22 @@ namespace Verse
             // step is walkable is arithmetic.
             climb.Sort((a, b) => a.y.CompareTo(b.y));
 
-            float worstStep = 0f;
+            // The slope between consecutive boards, which is what decides whether a character
+            // walks up or has to jump. It is not the step height: the boards are tilted and
+            // overlapped into one surface now, precisely because 0.4 m steps with nothing
+            // between them came back from the game as "I have to jump".
+            float steepest = 0f;
             for (int i = 1; i < climb.Count; i++)
-                worstStep = Mathf.Max(worstStep, climb[i].y - climb[i - 1].y);
+            {
+                Vector3 a = climb[i - 1], b = climb[i];
+                float flat = new Vector2(b.x - a.x, b.z - a.z).magnitude;
+                if (flat > 0.01f)
+                    steepest = Mathf.Max(steepest, Mathf.Atan2(b.y - a.y, flat) * Mathf.Rad2Deg);
+            }
 
-            Check($"a stair of {climb.Count} step(s) climbs to the gallery", climb.Count >= 2);
-            Check($"and no step is taller than a player walks up ({worstStep:0.00} m at worst)",
-                  climb.Count >= 2 && worstStep <= 0.5f);
+            Check($"a ramp of {climb.Count} board(s) climbs to the gallery", climb.Count >= 2);
+            Check($"and it is shallow enough to walk up ({steepest:0.#} degrees at its steepest)",
+                  climb.Count >= 2 && steepest <= 30f);
 
             // Against the walkway above the top step itself, not the walkway where the stair
             // started: the flight sweeps around the ring as it climbs and the wall's top follows

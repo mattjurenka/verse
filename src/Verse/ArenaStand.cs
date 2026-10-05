@@ -23,15 +23,14 @@ namespace Verse
     /// re-entry at the same time. That is the one thing the piece had to do, and it is why the
     /// railing is iron and not another course of stone.</para>
     ///
-    /// <para><b>The way up is steps, and it was a ladder until the game said otherwise.</b>
-    /// Three stacked <c>wood_stepladder</c> went in and came back "not actually climbable".
-    /// Valheim has no climbing: there is nothing about it in <c>Player</c> or <c>Character</c>,
-    /// and the only <c>Ladder</c> component is a lift that teleports whoever uses it to a
-    /// target transform - which the piece used here does not have. A wood ladder is therefore
-    /// climbed by walking up its collider, so it works only when it is the right way round, and
-    /// which way round that is lives in a Unity scene this server cannot read. See
-    /// <see cref="Stair"/>: the same boards as the walkway, in steps a player walks up, laid
-    /// level so there is no orientation to get wrong.</para>
+    /// <para><b>The way up took three goes, and each failure said something.</b> A ladder
+    /// cannot work: Valheim has no climbing - nothing about it in <c>Player</c> or
+    /// <c>Character</c>, and the only <c>Ladder</c> component is a lift that teleports whoever
+    /// uses it to a target transform, which the piece used here does not carry. Steps did not
+    /// work either: separate level plates 0.4 m apart came back as "I have to jump", because
+    /// between the plates there is nothing to walk onto. So it is a <see cref="Ramp"/> - the
+    /// same boards, tilted to the slope and overlapped into one continuous surface, which a
+    /// character walks up the way it walks up a hill.</para>
     ///
     /// <para>Shared, untagged, marked <c>verse.arena.stand</c> and unbreakable, like every other
     /// fixture - see <see cref="Fixture"/>.</para>
@@ -65,6 +64,12 @@ namespace Verse
         /// <summary>Which way round the ring the stair starts, in radians.</summary>
         private const float StairBearing = 0f;
 
+        /// <summary>How far the railing's base is sunk below the walkway, to close the seam.</summary>
+        private const float RailSink = 0.3f;
+
+        /// <summary>How far the second course of railing overlaps the first.</summary>
+        private const float RailOverlap = 1f;
+
         private static System.Reflection.FieldInfo _byId;
         private static bool _built;
 
@@ -88,7 +93,7 @@ namespace Verse
             if (all == null) return standing;
 
             foreach (ZDO zdo in all.Values)
-                if (IsStand(zdo)) standing.Add(zdo);
+                if (IsStand(zdo) && !Fixture.Doomed(zdo)) standing.Add(zdo);
 
             return standing;
         }
@@ -149,6 +154,7 @@ namespace Verse
             // or floating over it. See ArenaRing.WallTopY.
             var surfaces = new float[decks];
             float highest = float.MinValue;
+            float lowest = float.MaxValue;
 
             for (int i = 0; i < decks; i++)
             {
@@ -158,6 +164,7 @@ namespace Verse
 
                 surfaces[i] = ArenaRing.WallTopY(on) + Lift;
                 highest = Mathf.Max(highest, surfaces[i]);
+                lowest = Mathf.Min(lowest, surfaces[i]);
             }
 
             // The railing, just inside the walkway's inner edge.
@@ -179,6 +186,7 @@ namespace Verse
                 int boards = 0;
                 int steps = 0;
                 float walkway = float.MinValue;
+                float under = float.MaxValue;
 
                 foreach (ZDO zdo in standing)
                 {
@@ -189,13 +197,25 @@ namespace Verse
                     if (IsStep(zdo)) { steps++; continue; }
 
                     boards++;
-                    walkway = Mathf.Max(walkway, zdo.GetPosition().y + deck.max.y);
+
+                    float surface = zdo.GetPosition().y + deck.max.y;
+                    walkway = Mathf.Max(walkway, surface);
+                    under = Mathf.Min(under, surface);
                 }
 
-                // The stair counts as well as the walkway: a gallery with no way up is not a
-                // gallery, and this is also how the ladder that was built before the stair
-                // existed gets replaced rather than left standing beside it.
-                if (boards >= decks && steps >= 2 && Mathf.Abs(walkway - highest) < Slack)
+                // Both ends of the walkway, not just its top.
+                //
+                // Comparing the highest board alone kept a stepped walkway standing after the
+                // wall's top was made level: the highest board was in the right place, every
+                // other one was up to three metres below where it now belongs, and the gaps
+                // that prompted the change were still there. A ring that is one height has a
+                // walkway with no spread in it, so both ends have to match.
+                //
+                // The stair counts too: a gallery with no way up is not a gallery, and this is
+                // how a ladder or a flight of steps from an older build gets replaced rather
+                // than left standing beside the ramp.
+                if (boards >= decks && steps >= 2 &&
+                    Mathf.Abs(walkway - highest) < Slack && Mathf.Abs(under - lowest) < Slack)
                 {
                     _built = true;
                     VersePlugin.Log.LogInfo(
@@ -242,14 +262,35 @@ namespace Verse
                                      centre.z + outward.z * railRadius);
                 float surface = ArenaRing.WallTopY(on) + Lift;
 
-                // Standing on the walkway, so its own base goes on the surface - not its origin.
-                var at = new Vector3(on.x, surface - rail.min.y, on.z);
+                // Standing on the walkway, its base sunk a little into it. The sink is what
+                // closes the seam where the walkway is not perfectly flat - a railing sitting
+                // exactly on a surface that steps leaves a wedge of daylight under it at every
+                // step, which is what "weird gaps in the wall" turned out to be.
+                var at = new Vector3(on.x, surface - rail.min.y - RailSink, on.z);
 
                 Fixture.Place(railHash, at, Quaternion.LookRotation(outward), StandPiece);
                 made++;
+
+                // A second course on top of the first, and nothing subtle about why: one course
+                // of bars is about 2 m and a player could just about jump it. This puts the top
+                // at roughly 3 m over the walkway, which nobody clears.
+                //
+                // Offset half a piece around the ring so its bars fall between the first
+                // course's rather than on top of them - two identical lattices in the same metre
+                // of overlap would be coplanar, which renders as a flicker.
+                float over = angle + Mathf.PI / rails;
+                var above = new Vector3(centre.x + Mathf.Cos(over) * railRadius,
+                                        surface - rail.min.y - RailSink + rail.size.y - RailOverlap,
+                                        centre.z + Mathf.Sin(over) * railRadius);
+
+                Fixture.Place(railHash, above,
+                              Quaternion.LookRotation(new Vector3(Mathf.Cos(over), 0f,
+                                                                  Mathf.Sin(over))),
+                              StandPiece);
+                made++;
             }
 
-            made += Stair(centre, deckHash, deck);
+            made += Ramp(centre, deckHash, deck);
 
             _built = made > 0;
 
@@ -262,90 +303,97 @@ namespace Verse
         }
 
         /// <summary>
-        /// A flight of steps from the boardwalk up to the walkway, sweeping around the outside of
-        /// the wall.
+        /// A ramp from the boardwalk up to the walkway, sweeping around the outside of the wall.
         ///
-        /// <para><b>This was a ladder, and the ladder did not work.</b> It went into the game as
-        /// three stacked <c>wood_stepladder</c> and came back "not actually climbable". The
-        /// reason is in the game's own code: there is no climbing in <c>Player</c> or
-        /// <c>Character</c> at all. The only <c>Ladder</c> component is a lift that teleports you
-        /// to a target transform, and the piece used here does not carry one - so a wood ladder
-        /// is climbed purely by walking up its collider, which means it works only if it is the
-        /// right way round, and which way round that is is a decision in a Unity scene this
-        /// server cannot see. Guessing it from the collider shapes would be guessing.</para>
+        /// <para><b>Steps did not work either, and the reason is instructive.</b> This was a
+        /// ladder first - which cannot work at all, because Valheim has no climbing (see the
+        /// class note). It became a flight of level boards 0.4 m apart, which is inside the
+        /// half-metre a player is usually said to step over, and the report from the game was
+        /// "when my character tries to walk up the stairs it doesn't work, I have to jump". A
+        /// stack of separate plates is not a stair: between the plates there is nothing, so a
+        /// player walks into the next plate's edge rather than onto its surface, and whether
+        /// they ride up it is a question about a capsule and a collider rather than about
+        /// geometry.</para>
         ///
-        /// <para>So the way up is made of the same boards as everything else, in steps low
-        /// enough to walk up. A level 2 m tile has no orientation to get wrong, a
-        /// <see cref="Rise"/> step is well inside what a player walks up without jumping, and
-        /// every tread is measured off the prefab - which is the same reason the chests stopped
-        /// floating. The flight hugs the wall at the boardwalk's own radius, so its top tile
-        /// overlaps the walkway's outer edge and you simply walk on.</para>
+        /// <para>So the way up is now a <i>surface</i>: the same boards, tilted to the slope and
+        /// overlapped along it, which is a continuous ramp a character walks up the way it walks
+        /// up a hill. A floor tile has one axis that is its own up, which <see cref="Footing"/>
+        /// measures, so the rotation is arithmetic: look along the slope, with the surface normal
+        /// as up. Nothing about it depends on how the game treats steps, and the angle - capped
+        /// at <see cref="MaxSlope"/>, well under where Valheim starts sliding you back down - is
+        /// the only thing that has to be right.</para>
         /// </summary>
-        private static int Stair(Vector3 centre, int deckHash, Bounds deck)
+        private static int Ramp(Vector3 centre, int deckHash, Bounds deck)
         {
-            // Valheim lets a player walk up a step of about half a metre without jumping; this
-            // is comfortably inside that, and shallow enough that a wolf chasing somebody up it
-            // is not a surprise either.
-            const float Rise = 0.4f;
+            // Shallower than anything Valheim slides you down, and shallower than it needs to be:
+            // a spectator climbing to the gallery is not a challenge to be set.
+            const float MaxSlope = 22f;
 
-            // How far around the ring each step advances. Less than the board is long, so the
-            // treads overlap and the flight reads as a stair rather than a row of shelves.
-            const float Run = 1f;
+            // How far around the ring each board advances. Shorter than the board, so consecutive
+            // boards overlap along the slope and the surface is unbroken.
+            const float Run = 1.6f;
 
             const int Most = 40;
 
             float radius = ArenaSite.Radius + ArenaRing.WallThickness * 0.5f +
                            Mathf.Max(0.5f, deck.size.z) * 0.5f;
 
-            // Which way round to climb. The wall's top follows the ground, so sweeping towards
-            // the low side is a shorter flight - and on ground that rises faster than the stair
-            // does, sweeping the wrong way is a flight that never catches up with the walkway.
+            // Which way round to climb. With the wall's top level the climb is the same height
+            // either way, but the ground is not: sweeping towards the higher ground is the
+            // shorter ramp.
             float probe = 10f / radius;
-            float up = ArenaRing.WallTopY(On(centre, StairBearing + probe, ArenaSite.Radius));
-            float down = ArenaRing.WallTopY(On(centre, StairBearing - probe, ArenaSite.Radius));
-            float sweep = down < up ? -1f : 1f;
+            Vector3 sunwise = On(centre, StairBearing + probe, radius);
+            Vector3 widdershins = On(centre, StairBearing - probe, radius);
+            float sweep = ArenaSite.HeightAt(widdershins.x, widdershins.z) >
+                          ArenaSite.HeightAt(sunwise.x, sunwise.z) ? -1f : 1f;
 
-            int made = 0;
-            float y = float.NaN;
+            Vector3 foot = On(centre, StairBearing, radius);
+            float bottom = ArenaSite.HeightAt(foot.x, foot.z);
+            float walkway = ArenaRing.WallTopY(On(centre, StairBearing, ArenaSite.Radius)) + Lift;
 
-            for (int i = 0; i < Most; i++)
+            float climb = walkway - bottom;
+            if (climb <= 0.1f) return 0;
+
+            // Evenly divided, so the last board lands exactly on the walkway rather than a
+            // fraction of a step under or over it.
+            int boards = Mathf.Clamp(
+                Mathf.CeilToInt(climb / (Run * Mathf.Tan(MaxSlope * Mathf.Deg2Rad))), 1, Most);
+            float rise = climb / boards;
+            float slope = Mathf.Atan2(rise, Run);
+
+            for (int i = 0; i < boards; i++)
             {
-                float bearing = StairBearing + sweep * i * Run / radius;
+                // Half a step along from the bottom of this board's own span, so the board is
+                // centred on the piece of ramp it is paving.
+                float bearing = StairBearing + sweep * (i + 0.5f) * Run / radius;
                 var along = new Vector3(Mathf.Cos(bearing), 0f, Mathf.Sin(bearing));
+                Vector3 tangent = Vector3.Cross(Vector3.up, along) * sweep;
 
-                float x = centre.x + along.x * radius;
-                float z = centre.z + along.z * radius;
+                // Up the slope, and the surface normal perpendicular to it. LookRotation maps
+                // the piece's own forward onto the first and its own up onto the second.
+                Vector3 up = tangent * Mathf.Cos(slope) + Vector3.up * Mathf.Sin(slope);
+                Vector3 normal = Vector3.Cross(up, along).normalized;
+                if (normal.y < 0f) normal = -normal;
 
-                // The walkway's height on this bearing - asked at the wall's own circle, because
-                // the wall is what the walkway is laid on and the wall follows the ground.
-                float walkway = ArenaRing.WallTopY(On(centre, bearing, ArenaSite.Radius)) + Lift;
+                var facing = Quaternion.LookRotation(up, normal);
 
-                // The first step starts one rise above the ground so there is something to step
-                // up onto from the boardwalk, rather than a tile lying in it.
-                if (float.IsNaN(y)) y = ArenaSite.HeightAt(x, z) + Rise;
+                float surface = bottom + rise * (i + 0.5f);
+                Vector3 at = On(centre, bearing, radius);
+                at.y = surface;
+                at -= normal * deck.max.y;
 
-                bool last = y >= walkway;
-                float surface = last ? walkway : y;
-
-                ZDO step = Fixture.Place(deckHash,
-                                         new Vector3(x, surface - deck.max.y, z),
-                                         Quaternion.LookRotation(along), StandPiece);
-                step?.Set(StepPiece, 1, okForNotOwner: true);
-                made++;
-
-                if (last) break;
-
-                y += Rise;
+                ZDO board = Fixture.Place(deckHash, at, facing, StandPiece);
+                board?.Set(StepPiece, 1, okForNotOwner: true);
             }
 
             VersePlugin.Log.LogInfo(
-                $"arena: a {made}-step stair up the outside of the wall at {radius:0.0} m, " +
-                $"{Rise:0.00} m a step and {Run:0.00} m round the ring each time");
+                $"arena: a ramp of {boards} board(s) up the outside of the wall at " +
+                $"{radius:0.0} m - {climb:0.0} m of climb at {slope * Mathf.Rad2Deg:0.#} degrees, " +
+                $"from {bottom:0.0} m to the walkway at {walkway:0.0} m");
 
-            return made;
+            return boards;
         }
 
-        /// <summary>A point on a circle of this radius about the centre, at this bearing.</summary>
         private static Vector3 On(Vector3 centre, float bearing, float radius) =>
             new Vector3(centre.x + Mathf.Cos(bearing) * radius, 0f,
                         centre.z + Mathf.Sin(bearing) * radius);

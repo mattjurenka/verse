@@ -27,13 +27,13 @@ namespace Verse
     /// and <see cref="Arena.ClearRadius"/> says how far out "the venue" reaches - wider than the
     /// wall, because a tree just outside it is in shot and ends up on the floor.</para>
     ///
-    /// <para><b>Uniform base height, which the first build got wrong.</b> Placing each segment
-    /// at its own local ground height left pieces that neither met their neighbours nor reached
-    /// the ground, and stone needs support: 34 of 120 pieces collapsed on the first client to
-    /// load them, and the repair pass dutifully resurrected them so they could collapse again.
-    /// One base taken from the lowest ground on the ring, with enough rows to clear the
-    /// highest, buries the wall on the high side instead - a few more pieces of stone and
-    /// nothing else.</para>
+    /// <para><b>A level top, paid for by the unbreakable rule.</b> Collapse decided this twice:
+    /// per-segment ground heights left 34 of 120 pieces unsupported, and a uniform base needed
+    /// four rows, which stone will not self-support. Both were constraints on a wall that could
+    /// fall down, and <see cref="Fixture"/> has since made these pieces unbreakable - so the
+    /// wall is now one height all the way round, with as many courses as each segment needs to
+    /// get there from its own ground. That is what removes the steps from the gallery, and the
+    /// gaps from the steps. See <see cref="Raise"/>.</para>
     /// </summary>
     internal static class ArenaRing
     {
@@ -91,12 +91,10 @@ namespace Verse
         private static bool _wallChosen;
 
         /// <summary>
-        /// Three rows, about 4.5 m above grade. Two was unjumpable but low to look at; four on a
-        /// uniform base collapsed, because stone will not self-support an 8 m stack. Three with
-        /// the bottom row buried 1.5 m into the ground is inside what stone holds - and the
-        /// "restored N wall piece(s)" line at the next run start is how we find out if it is not.
-        /// Kept at three for the tougher materials too: their support rules are stone's, so a
-        /// stack that stood in stone stands in grausten and a taller one is a new experiment.
+        /// The minimum number of courses, which is now a floor rather than the count: every
+        /// segment stands at least this tall above its own ground, and the ones on the low side
+        /// of the site stand taller so that the top comes out level. Three courses is about
+        /// 4.5 m above grade, well over Valheim.s ~1.2 m jump.
         /// </summary>
         private const int Rows = 3;
 
@@ -110,8 +108,8 @@ namespace Verse
         /// How far the standing wall's average height may be from the ground's before it is
         /// rebuilt.
         ///
-        /// <para>Tight, and it can be, because <see cref="ExpectedMeanY"/> works out what the
-        /// average should be with the same per-segment arithmetic <see cref="Raise"/> uses - so
+        /// <para>Tight, and it can be, because <see cref="Expected"/> works out what the
+        /// average should be with the same arithmetic <see cref="Raise"/> uses - so
         /// the comparison holds on ground of any shape. It was briefly a loose 1.5 m instead,
         /// against the height at the centre, and that let the first live deploy keep a ring
         /// standing 1.22 m below where the floor had moved to: the wall sunk into the floor, and
@@ -283,8 +281,7 @@ namespace Verse
                 // The mean of Rows row-centres is the base plus half the stack, so this is where
                 // the pieces' average height should be for the ground as it is now.
                 builtY = height / standing.Count;
-                wantedY = ExpectedMeanY(centre, wall, radius);
-                int wantPieces = Mathf.Max(8, Mathf.RoundToInt(2f * Mathf.PI * radius / wall.Width)) * Rows;
+                Expected(centre, wall, radius, out int wantPieces, out wantedY);
 
                 // Judged on the piece count and the material as well as the radius. Changing Rows
                 // to raise the walls used to do nothing at all: the radius still matched, so
@@ -354,13 +351,14 @@ namespace Verse
             LevelSite(centre);
 
             int made = Raise(centre, wall, radius);
-            int segments = made / Rows;
+            int segments = Mathf.Max(8, Mathf.RoundToInt(2f * Mathf.PI * radius / wall.Width));
 
             _built = true;
             ArenaSite.Confirm();
             VersePlugin.Log.LogInfo(
-                $"arena: built the ring - {made} piece(s) of {wall.Prefab}, {segments} segments x " +
-                $"{Rows} rows following the ground around a {radius:0} m circle at " +
+                $"arena: built the ring - {made} piece(s) of {wall.Prefab}, {segments} segments " +
+                $"averaging {made / (float)segments:0.0} rows each, level-topped at " +
+                $"{WallTopY(centre + Vector3.right * radius):0.0} m, around a {radius:0} m circle at " +
                 $"{centre.x:0}, {centre.z:0}; cleared {cleared} piece(s) of scenery out to " +
                 $"{Arena.ClearRadius:0} m");
 
@@ -488,40 +486,87 @@ namespace Verse
         /// </summary>
         internal static float WallTopY(Vector3 at)
         {
+            WallKind wall = Wall();
             Vector3 centre = ArenaSite.Centre;
-            float angle = Mathf.Atan2(at.z - centre.z, at.x - centre.x);
 
-            // Projected onto the wall's own circle and measured the way Raise measures - the
-            // lowest ground under the segment, not the ground where the caller happened to ask.
-            // Anything else and the gallery is laid at a height the wall was never built to.
+            // One height for the whole ring: the tallest any segment has to be to stand
+            // Rows courses above its own ground. Everything the gallery is made of reads this,
+            // so the walkway and the railing are one flat ring with no steps in them.
+            if (VersePlugin.ArenaUnbreakable.Value)
+                return Highest(centre, wall, ArenaSite.Radius) + Sink + wall.Height * Rows;
+
+            // Without the unbreakable rule the wall has to stay short, so it follows the
+            // terrain and the gallery follows the wall - measured the way Raise measures, the
+            // lowest ground under the segment nearest this point.
+            float angle = Mathf.Atan2(at.z - centre.z, at.x - centre.x);
             float x = centre.x + Mathf.Cos(angle) * ArenaSite.Radius;
             float z = centre.z + Mathf.Sin(angle) * ArenaSite.Radius;
 
-            return Lowest(x, z, angle, Wall()) + Sink + Wall().Height * Rows;
+            return Lowest(x, z, angle, wall) + Sink + wall.Height * Rows;
         }
 
-        /// <summary>
-        /// Where the average standing wall piece should be, for the ground as it is now: the
-        /// same per-segment arithmetic <see cref="Raise"/> uses, averaged.
-        ///
-        /// <para>Used to decide whether a ring that is already up still belongs where it is.
-        /// Computed rather than taken from the height at the centre, because the segments are
-        /// placed from their own ground and a site is not flat - with the floor a fill rather
-        /// than a level, it is not even nearly flat.</para>
-        /// </summary>
-        private static float ExpectedMeanY(Vector3 centre, WallKind wall, float radius)
+        /// <summary>The highest ground any segment of the ring stands on. Cached per site.</summary>
+        private static float Highest(Vector3 centre, WallKind wall, float radius)
         {
+            if (_highestAt == centre && _highestFor == radius) return _highest;
+
             int segments = Mathf.Max(8, Mathf.RoundToInt(2f * Mathf.PI * radius / wall.Width));
-            float sum = 0f;
+            float highest = float.MinValue;
 
             for (int i = 0; i < segments; i++)
             {
                 float angle = i * 2f * Mathf.PI / segments;
-                sum += Lowest(centre.x + Mathf.Cos(angle) * radius,
-                              centre.z + Mathf.Sin(angle) * radius, angle, wall);
+                highest = Mathf.Max(highest,
+                                    Lowest(centre.x + Mathf.Cos(angle) * radius,
+                                           centre.z + Mathf.Sin(angle) * radius, angle, wall));
             }
 
-            return sum / segments + Sink + wall.Height * Rows * 0.5f;
+            _highest = highest;
+            _highestAt = centre;
+            _highestFor = radius;
+            return highest;
+        }
+
+        private static float _highest;
+        private static Vector3 _highestAt = new Vector3(float.NaN, float.NaN, float.NaN);
+        private static float _highestFor = float.NaN;
+
+        /// <summary>
+        /// How many courses this segment needs to reach the ring's top from its own ground, with
+        /// the bottom one buried by at least <see cref="Sink"/>.
+        /// </summary>
+        private static int RowsAt(Vector3 centre, WallKind wall, float radius, float ground) =>
+            Mathf.Clamp(
+                Mathf.CeilToInt((WallTopY(centre + Vector3.right * radius) - (ground + Sink)) /
+                                wall.Height),
+                Rows, 24);
+
+        /// <summary>
+        /// What the ring should look like for the ground as it is now: how many pieces, and where
+        /// their average height should be. The same arithmetic <see cref="Raise"/> uses, which is
+        /// the point - it is what decides whether a ring that is already up still belongs.
+        /// </summary>
+        private static void Expected(Vector3 centre, WallKind wall, float radius,
+                                     out int pieces, out float meanY)
+        {
+            int segments = Mathf.Max(8, Mathf.RoundToInt(2f * Mathf.PI * radius / wall.Width));
+            float sum = 0f;
+            pieces = 0;
+
+            for (int i = 0; i < segments; i++)
+            {
+                float angle = i * 2f * Mathf.PI / segments;
+                float x = centre.x + Mathf.Cos(angle) * radius;
+                float z = centre.z + Mathf.Sin(angle) * radius;
+
+                float top = WallTopY(new Vector3(x, 0f, z));
+                int rows = RowsAt(centre, wall, radius, Lowest(x, z, angle, wall));
+
+                for (int row = 0; row < rows; row++) sum += top - wall.Height * (row + 0.5f);
+                pieces += rows;
+            }
+
+            meanY = pieces > 0 ? sum / pieces : 0f;
         }
 
         /// <summary>
@@ -588,7 +633,7 @@ namespace Verse
         {
             var standing = new List<ZDO>();
             foreach (ZDO zdo in all.Values)
-                if (zdo.GetInt(RingPiece, 0) == 1) standing.Add(zdo);
+                if (zdo.GetInt(RingPiece, 0) == 1 && !Fixture.Doomed(zdo)) standing.Add(zdo);
             return standing;
         }
 
@@ -597,18 +642,29 @@ namespace Verse
         /// geometry, and nothing else - the caller decides whether the ground was clear enough to
         /// be doing this.
         ///
-        /// <para><b>Per-segment ground height, sunk deep, and only three rows.</b> Both earlier
-        /// attempts collapsed, for opposite reasons, and the second is the instructive one.
-        /// Placing each segment at its own ground height sunk 0.3 m left pieces floating on a
-        /// slope: 34 of 120 gone. Replacing that with one uniform base taken from the lowest
-        /// ground meant stacking four rows to clear the highest - and stone will not self-support
-        /// an 8 m stack, so 120 of 164 went, which is 41 segments x the top three rows almost
-        /// exactly.</para>
+        /// <para><b>A level top, which two earlier attempts could not have.</b> The first build
+        /// put each segment at its own ground height and 34 of 120 pieces collapsed; the second
+        /// used one uniform base, which needed four rows to clear the high side, and stone will
+        /// not self-support an 8 m stack - 120 of 164 went. So the surviving design followed the
+        /// terrain and stayed three rows short, and that is what the venue looked like in the
+        /// game: a wall whose top rode up and down by five metres, with the walkway and the
+        /// railing stepping along behind it and a wedge-shaped hole at every step.</para>
         ///
-        /// <para>So: follow the terrain, bury the bottom row properly, and stay short. Three rows
-        /// reach about 4.5 m above grade, well over Valheim's ~1.2 m jump and well inside what
-        /// stone holds up, and adjacent segments differ by ~0.2 m across this site's ground
-        /// variance, so following the terrain leaves no gaps.</para>
+        /// <para><b>What changed is <see cref="Fixture"/>.</b> Collapse was the constraint, and
+        /// collapse is support damage against a few hundred hit points; a piece with a billion
+        /// does not fall down. So the wall can now be built the way a wall should be: one height
+        /// all the way round, with however many rows each segment needs to reach it from its own
+        /// ground. The low side gets a deeper wall instead of a shorter one, the top is flat, and
+        /// the gallery and its railing are flat with it - no steps, and therefore no gaps.</para>
+        ///
+        /// <para>The rows are laid downwards from that top rather than upwards from the ground,
+        /// because the top is the surface that has to be exact. The bottom row ends up buried by
+        /// whatever is left over, which is the direction an error should go in: the alternative
+        /// is a gap under the wall, which is what the first live venue had.</para>
+        ///
+        /// <para>With <c>ArenaUnbreakable</c> off this goes back to following the terrain, three
+        /// rows per segment - a stack that tall would collapse without the health, and a venue
+        /// that falls over is worse than one with a stepped top.</para>
         /// </summary>
         private static int Raise(Vector3 centre, WallKind wall, float radius)
         {
@@ -640,11 +696,14 @@ namespace Verse
                     // and both ends - buries it against whichever side is lowest, which is the
                     // only version of "buried" that holds on a slope.
                     float ground = Lowest(x, z, angle, wall);
+                    int rows = RowsAt(centre, wall, radius, ground);
+                    float top = WallTopY(new Vector3(x, 0f, z));
 
-                    for (int row = 0; row < Rows; row++)
+                    for (int row = 0; row < rows; row++)
                     {
-                        // Bottom row spans ground-1.5 to ground+0.5; the second carries on up.
-                        var at = new Vector3(x, ground + Sink + wall.Height * (row + 0.5f), z);
+                        // Laid downwards from the top, so the walkway's surface is exact and the
+                        // slack ends up buried at the bottom.
+                        var at = new Vector3(x, top - wall.Height * (row + 0.5f), z);
 
                         // Shared, persistent and unbreakable; deliberately NOT tagged to a verse,
                         // because untagged means every verse is sent it, which is what one shared

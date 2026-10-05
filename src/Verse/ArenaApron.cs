@@ -60,7 +60,7 @@ namespace Verse
             if (all == null) return standing;
 
             foreach (ZDO zdo in all.Values)
-                if (IsApron(zdo)) standing.Add(zdo);
+                if (IsApron(zdo) && !Fixture.Doomed(zdo)) standing.Add(zdo);
 
             return standing;
         }
