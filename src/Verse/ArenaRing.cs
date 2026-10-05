@@ -260,6 +260,12 @@ namespace Verse
             // are.
             List<ZDO> standing = Standing(all);
 
+            // Hoisted out of the block below so the teardown, which now happens after the
+            // occupancy check rather than before it, can still say what was wrong.
+            bool needsRebuilding = false;
+            float built = 0f, builtY = 0f, wantedY = 0f;
+            int wrongMaterial = 0;
+
             if (standing.Count > 0)
             {
                 float sum = 0f;
@@ -272,12 +278,12 @@ namespace Verse
                     height += p.y;
                 }
 
-                float was = sum / standing.Count;
+                built = sum / standing.Count;
 
                 // The mean of Rows row-centres is the base plus half the stack, so this is where
                 // the pieces' average height should be for the ground as it is now.
-                float wasY = height / standing.Count;
-                float wantY = ExpectedMeanY(centre, wall, radius);
+                builtY = height / standing.Count;
+                wantedY = ExpectedMeanY(centre, wall, radius);
                 int wantPieces = Mathf.Max(8, Mathf.RoundToInt(2f * Mathf.PI * radius / wall.Width)) * Rows;
 
                 // Judged on the piece count and the material as well as the radius. Changing Rows
@@ -289,29 +295,21 @@ namespace Verse
                 // line the stone ring would stand for ever and the new setting would do nothing.
                 // Destroyed pieces do not affect any of it - Destruction masks them rather than
                 // removing them - so the counts are stable for a given geometry.
-                int wrongMaterial = 0;
                 foreach (ZDO zdo in standing)
                     if (zdo.GetPrefab() != wallHash) wrongMaterial++;
 
-                if (Mathf.Abs(was - radius) < RadiusSlack && standing.Count == wantPieces &&
-                    wrongMaterial == 0 && Mathf.Abs(wasY - wantY) < HeightSlack)
+                if (Mathf.Abs(built - radius) < RadiusSlack && standing.Count == wantPieces &&
+                    wrongMaterial == 0 && Mathf.Abs(builtY - wantedY) < HeightSlack)
                 {
                     _built = true;
                     ArenaSite.Confirm();
                     VersePlugin.Log.LogInfo(
                         $"arena: the ring is already standing ({standing.Count} piece(s) of " +
-                        $"{wall.Prefab} at {was:0.0} m, averaging {wasY:0.0} m high)");
+                        $"{wall.Prefab} at {built:0.0} m, averaging {builtY:0.0} m high)");
                     return 0;
                 }
 
-                foreach (ZDO zdo in standing) Destroy(zdo);
-                VersePlugin.Log.LogInfo(
-                    $"arena: tore down {standing.Count} wall piece(s) built at {was:0.0} m" +
-                    (wrongMaterial > 0 ? $", {wrongMaterial} of them the wrong material" : "") +
-                    (Mathf.Abs(wasY - wantY) >= HeightSlack
-                        ? $", standing at {wasY:0.0} m where the ground now wants {wantY:0.0} m"
-                        : "") +
-                    $" - the ring is now {wall.Prefab} on a {radius:0} m circle");
+                needsRebuilding = true;
             }
 
             // Refuse to build on top of anybody. On an empty test world every site is fair game;
@@ -319,6 +317,11 @@ namespace Verse
             // hall would put a stone wall through it and strip the trees around it, for every
             // verse, permanently. Verse-tagged objects are by definition somebody.s work
             // (Authorship only ever tags what a client created), so their presence is the test.
+            //
+            // Asked BEFORE the old ring comes down, which it was not at first - and the one time
+            // the refusal fired on the live server it fired after the teardown, so the arena
+            // spent an evening with no wall at all. A refusal has to leave the venue as it found
+            // it; that is the whole point of refusing.
             int occupied = Occupants(all, centre, radius);
 
             if (occupied > 0)
@@ -326,10 +329,22 @@ namespace Verse
                 VersePlugin.Log.LogError(
                     $"arena: REFUSING to build the ring at {centre.x:0}, {centre.z:0} - " +
                     $"{occupied} object(s) there belong to a verse, so somebody is using that " +
-                    "ground. Pick another spot: set ArenaSitePoint by hand, or raise " +
-                    "ArenaMinDistance and clear ArenaSitePoint to rescan. Found: " +
-                    string.Join(", ", Blocking.ToArray()));
+                    "ground. The ring that is already standing has been left alone. Pick another " +
+                    "spot: set ArenaSitePoint by hand, or raise ArenaMinDistance and clear " +
+                    "ArenaSitePoint to rescan. Found: " + string.Join(", ", Blocking.ToArray()));
                 return 0;
+            }
+
+            if (needsRebuilding)
+            {
+                foreach (ZDO zdo in standing) Destroy(zdo);
+                VersePlugin.Log.LogInfo(
+                    $"arena: tore down {standing.Count} wall piece(s) built at {built:0.0} m" +
+                    (wrongMaterial > 0 ? $", {wrongMaterial} of them the wrong material" : "") +
+                    (Mathf.Abs(builtY - wantedY) >= HeightSlack
+                        ? $", standing at {builtY:0.0} m where the ground now wants {wantedY:0.0} m"
+                        : "") +
+                    $" - the ring is now {wall.Prefab} on a {radius:0} m circle");
             }
 
             int cleared = Flatten(centre);
@@ -734,7 +749,16 @@ namespace Verse
             foreach (ZDO zdo in all.Values)
             {
                 if (!ZdoVerse.Tagged(zdo)) continue;
-                if (Arena.Ours(zdo) || zdo.GetInt(RingPiece, 0) == 1) continue;
+
+                // Never the arena's own furniture, whatever verse tag it has picked up.
+                //
+                // This is what refused to rebuild the live ring, after the ring had already
+                // been torn down: a player had walked the gallery, and a shared object a verse
+                // interacts with is forked to that verse by Divergence - so 82 boards of
+                // walkway and 79 iron railings came back as "111 object(s) there belong to a
+                // verse, so somebody is using that ground". They do belong to a verse. They are
+                // also ours, and the markers say so.
+                if (Arena.Ours(zdo) || IsFixture(zdo)) continue;
 
                 Vector3 p = zdo.GetPosition();
                 float dx = p.x - centre.x, dz = p.z - centre.z;
@@ -746,6 +770,15 @@ namespace Verse
                 // Only something placed with a hammer counts as "somebody is using this".
                 if (prefab.GetComponent<Piece>() == null) continue;
                 if (prefab.GetComponent<TombStone>() != null) continue;
+
+                // And not scenery that a verse merely touched. A berry bush carries a Piece
+                // because it is plantable, so picking one forks it to that verse (Divergence)
+                // and it then reads as construction - the live refusal listed Pukeberries
+                // alongside the arena's own boards. Somebody's hall is walls and floors and
+                // workbenches; a bush they picked on the way past is not, and the scenery sweep
+                // would have taken it if the fork had not put a verse tag on it.
+                if (prefab.GetComponent<Pickable>() != null) continue;
+                if (prefab.GetComponent<Plant>() != null) continue;
 
                 // Named, not just counted. Refusing with a number taught us nothing twice over;
                 // the prefab names say in one restart whether this is a base or the arena's own
