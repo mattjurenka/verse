@@ -490,6 +490,14 @@ namespace Verse
                     ArenaRing.Ensure();
                     ArenaApron.Ensure();
                     ArenaStand.Ensure();
+
+                    // After the venue is up, and whatever built it: "unbreakable" is a property
+                    // of the arena, not of the code path that happened to place a piece. See
+                    // ArenaRing.HardenAll.
+                    int hardened = ArenaRing.HardenAll();
+                    if (hardened > 0)
+                        Log.LogInfo($"arena: made {hardened} fixture(s) unbreakable");
+
                     ArenaSelfTest.Run();
                 }
             }

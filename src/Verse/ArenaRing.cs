@@ -423,6 +423,39 @@ namespace Verse
         internal static float WallTopY(Vector3 at) =>
             ArenaSite.HeightAt(at.x, at.z) + Sink + Wall().Height * Rows;
 
+        /// <summary>Whether a ZDO is any of the arena's own permanent furniture.</summary>
+        internal static bool IsFixture(ZDO zdo) =>
+            zdo != null && (zdo.GetInt(RingPiece, 0) == 1 || ArenaDeck.IsDeck(zdo) ||
+                            ArenaApron.IsApron(zdo) || ArenaStand.IsStand(zdo));
+
+        /// <summary>
+        /// Puts the unbreakable health back on every fixture in the world, whenever it is
+        /// missing.
+        ///
+        /// <para><b>Run at boot as well as at the start of a run, which the first live deploy
+        /// showed was necessary.</b> <see cref="Fixture.Place"/> writes the health when it
+        /// creates a piece, so "unbreakable" was a property of one code path rather than of the
+        /// venue - and the live self-test duly found 166 gallery pieces without it, left over
+        /// from a build that predated the rule. A sweep is one pass over the object table and
+        /// does not care which path, which version or which boot made the piece.</para>
+        /// </summary>
+        internal static int HardenAll()
+        {
+            if (!VersePlugin.ArenaUnbreakable.Value) return 0;
+
+            Dictionary<ZDOID, ZDO> all = All();
+            if (all == null) return 0;
+
+            int hardened = 0;
+            foreach (ZDO zdo in all.Values)
+            {
+                if (!IsFixture(zdo)) continue;
+                if (Fixture.Harden(zdo)) hardened++;
+            }
+
+            return hardened;
+        }
+
         /// <summary>The ring's own pieces, wherever they are and whatever they are made of.</summary>
         private static List<ZDO> Standing(Dictionary<ZDOID, ZDO> all)
         {
@@ -700,7 +733,6 @@ namespace Verse
             if (all == null) return 0;
 
             int repaired = 0;
-            int hardened = 0;
 
             foreach (ZDO zdo in all.Values)
             {
@@ -708,17 +740,12 @@ namespace Verse
                 // puts one through has broken it for that verse for good otherwise - a missing
                 // deck is a chest standing on nothing, and a missing railing is a spectator
                 // dropping into somebody's run.
-                bool fixture = zdo.GetInt(RingPiece, 0) == 1 || ArenaDeck.IsDeck(zdo) ||
-                               ArenaApron.IsApron(zdo) || ArenaStand.IsStand(zdo);
-                if (!fixture) continue;
-
+                if (!IsFixture(zdo)) continue;
                 if (HideMask.Reveal(zdo, verse)) repaired++;
-
-                // Health re-asserted as well as masks lifted: this is what makes the rule stick
-                // for a venue built before the rule existed, and for anything a player has
-                // repaired back down to its prefab's own health with a hammer.
-                if (Fixture.Harden(zdo)) hardened++;
             }
+
+            // Health with it, for the whole venue rather than only this verse's broken bits.
+            int hardened = HardenAll();
 
             if (repaired > 0 || hardened > 0)
                 VersePlugin.Log.LogInfo(
