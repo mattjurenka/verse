@@ -51,8 +51,16 @@ namespace Verse
         /// <summary>How far the walkway's surface sits above the stone it is laid on.</summary>
         private const float Lift = 0.02f;
 
-        /// <summary>How far the built radius may drift before the gallery is relaid.</summary>
-        private const float Slack = 1f;
+        /// <summary>
+        /// How far the standing walkway may be from where the wall now wants it before the
+        /// gallery is relaid.
+        ///
+        /// <para>Tight, like the ring's own test, and for the same reason: both sides of the
+        /// comparison are now worked out the same way, from the wall under each plank. It was a
+        /// metre, which is the sort of error that reads in the game as a walkway hovering over
+        /// the stone - the failure this whole venue has kept finding new ways to produce.</para>
+        /// </summary>
+        private const float Slack = 0.3f;
 
         /// <summary>Which way round the ring the stair starts, in radians.</summary>
         private const float StairBearing = 0f;

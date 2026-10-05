@@ -767,18 +767,27 @@ namespace Verse
                 GameObject prefab = ZNetScene.instance?.GetPrefab(zdo.GetPrefab());
                 if (prefab == null) continue;
 
-                // Only something placed with a hammer counts as "somebody is using this".
+                // Only something somebody built counts as "somebody is using this", and the
+                // test for that is a piece that *wears*: construction has WearNTear, because
+                // construction decays and can be repaired. A dropped item does not, a sapling
+                // does not, a berry does not.
+                //
+                // This started as "has a Piece", which let one dropped berry hold the live
+                // arena's wall down. Pukeberries is an item - it was lying on the floor where
+                // somebody emptied their pockets - and it was enough to refuse the rebuild,
+                // because being a player's property is the one thing it does have in common
+                // with a hall.
                 if (prefab.GetComponent<Piece>() == null) continue;
+                if (prefab.GetComponent<WearNTear>() == null) continue;
+                if (prefab.GetComponent<ItemDrop>() != null) continue;
                 if (prefab.GetComponent<TombStone>() != null) continue;
 
-                // And not scenery that a verse merely touched. A berry bush carries a Piece
-                // because it is plantable, so picking one forks it to that verse (Divergence)
-                // and it then reads as construction - the live refusal listed Pukeberries
-                // alongside the arena's own boards. Somebody's hall is walls and floors and
-                // workbenches; a bush they picked on the way past is not, and the scenery sweep
-                // would have taken it if the fork had not put a verse tag on it.
-                if (prefab.GetComponent<Pickable>() != null) continue;
-                if (prefab.GetComponent<Plant>() != null) continue;
+                // Scenery a verse merely touched, for the same reason: picking a berry bush or
+                // planting a carrot forks it to that verse (Divergence), which makes it a
+                // player's property without making it a building. Checked through the children
+                // too, because on these prefabs the component is not always on the root.
+                if (prefab.GetComponentInChildren<Pickable>(true) != null) continue;
+                if (prefab.GetComponentInChildren<Plant>(true) != null) continue;
 
                 // Named, not just counted. Refusing with a number taught us nothing twice over;
                 // the prefab names say in one restart whether this is a base or the arena's own
