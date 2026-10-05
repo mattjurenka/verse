@@ -24,3 +24,13 @@ python3 tests/test_visitors.py     # from the valpanel directory
 
 Nothing else here is unit-tested. The HTTP layer, the passkey flow and the journal tail all
 want a real server to say anything useful about, and the panel is small enough to read.
+
+`test_join.py` covers the one line of parsing behind the public `/api/join`: which journal line
+the join code is taken from. It is the *activation* line and not `registered with join code`,
+because a registered-but-never-activated code is crossplay's silent failure — the server looks
+healthy and nothing can reach it — and a website showing that code would be worse than one
+showing none.
+
+```sh
+python3 tests/test_join.py     # from the valpanel directory
+```

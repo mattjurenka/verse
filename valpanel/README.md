@@ -69,6 +69,29 @@ visit still shows as a spike) and `AVG` for the rates. It records `core_max`, th
 single core, alongside aggregate CPU, because Valheim's simulation is largely
 single-threaded: one pegged core on a 2 vCPU box reads as a harmless ~50% in the aggregate.
 
+## The one public route: `GET /api/join`
+
+```json
+{"crossplay": true, "code": "968470", "running": true, "checked": 1791175938}
+```
+
+Everything else here is passkey-gated. This is not, because the crossplay join code is the
+opposite of a secret — it is the thing players are handed — and verseworlds.fun reads it so
+that the code on the page is the code the running server actually has. PlayFab issues a new
+one when the session registers, so a code typed into the website would go stale silently, and
+a stale join code is a server nobody can reach.
+
+It carries the code and nothing else: no names, no metrics, no console. The answer is
+**derived, not stored** — the flag comes from the running process's own `/proc/<pid>/cmdline`
+and the code from that process's journal, so there is no state to keep in sync and a code from
+a previous run can never be served as current. Cached for 30 s, and `Access-Control-Allow-Origin`
+is set only for the site's own origins.
+
+It reads the **activation** line (`… is active with …`) rather than `registered with join
+code`, deliberately: a code that registered but never activated is crossplay's silent failure
+(see `../HANDOFF.md`), and a page showing a dead code would be worse than one showing none.
+`tests/test_join.py` is that distinction, written down.
+
 **Auth is a passkey plus a hardcoded allowlist.** Anyone can create a passkey on the panel —
 it lands in `/var/lib/valpanel/registrations.json` and gets them a session with no access at
 all. Access comes only from the `APPROVED` dict at the top of `app.py`, which pins each

@@ -27,8 +27,27 @@ pnpm dev
   `pnpm dlx shadcn@latest add <component>` - don't hand-edit it, regenerate it instead.
 - `functions/` - Cloudflare Pages Functions. Each file is its own Worker route
   (`functions/api/health.ts` -> `GET /api/health`); this is the "worker access" Pages gives
-  you alongside the static build, for whenever the site needs server-side logic (e.g. pulling
-  a live player count onto the Connect section) instead of a separate Worker project.
+  you alongside the static build, for whenever the site needs server-side logic instead of a
+  separate Worker project.
+
+## The join code is fetched, not written down
+
+The crossplay join code shown in the header, the hero, the Connect section and the footer is
+**not a constant in the page**. PlayFab issues it when the server registers its session and a
+restart can be handed a different one, so a code typed in here would go stale silently — and a
+stale join code is a server nobody can reach.
+
+```
+the game's journal  ->  valpanel /api/join  ->  this site's /api/join  ->  useJoin()
+  (the only place        (../valpanel, on       (functions/api/join.ts,   (src/lib/join.ts)
+   that knows)            the game box)          cached at the edge)
+```
+
+Each step only passes on what the step before it knows, so there is nothing to keep in sync.
+`src/lib/join.ts` holds a remembered code as the first paint and the last resort — update it
+when the code changes for good, but nothing breaks if it drifts, which is the point. When
+crossplay is off the chain reports no code at all and every component falls back to the
+address rather than showing a number that would not work.
 
 ## Deploying
 

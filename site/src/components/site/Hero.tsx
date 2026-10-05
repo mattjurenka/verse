@@ -1,5 +1,6 @@
 import { Compass, Swords, Users } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { JoinCodeLine } from "@/components/site/JoinCode"
 
 export function Hero() {
   return (
@@ -40,6 +41,10 @@ export function Hero() {
             <a href="#concept">How it works</a>
           </Button>
         </div>
+
+        {/* The code again, here, because this is where somebody decides to play. It is read
+            live - see src/lib/join.ts - so it cannot go stale behind us. */}
+        <JoinCodeLine />
 
         <dl className="mt-10 grid w-full grid-cols-1 gap-4 sm:grid-cols-3">
           {[

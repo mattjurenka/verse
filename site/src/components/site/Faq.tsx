@@ -27,6 +27,10 @@ const FAQS: { q: string; a: string }[] = [
     a: "Yes - every verse starts private. Nobody can see it, reach it, or join it until you !verse open it, set a !verse password, or !verse invite them by name.",
   },
   {
+    q: "How do I join from Xbox or Switch?",
+    a: "The same way as on PC: Start Game → Join Game → Join code, and type the join code at the top of this page. Crossplay is on and there is no password. The code is read live from the server, so the one shown here is always the one that works - if you have an older one written down, check back here.",
+  },
+  {
     q: "What does changing verse actually do to my connection?",
     a: "You'll see a short disconnect with a chat message explaining what happened - that's normal. Reconnect to the same server address and you'll land in the right place.",
   },

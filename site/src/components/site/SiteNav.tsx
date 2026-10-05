@@ -6,6 +6,7 @@ import {
   SheetContent,
   SheetTrigger,
 } from "@/components/ui/sheet"
+import { JoinCodeChip } from "@/components/site/JoinCode"
 
 const LINKS = [
   { href: "#concept", label: "What's a Verse" },
@@ -46,8 +47,14 @@ function Wordmark() {
 export function SiteNav() {
   return (
     <header className="sticky top-0 z-50 border-b border-border/60 bg-background/80 backdrop-blur-md">
-      <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-4">
-        <Wordmark />
+      <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-6 py-4 sm:gap-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <Wordmark />
+
+          {/* The join code lives in the header because it is the one thing a visitor came for,
+              and it should not need a scroll to find. */}
+          <JoinCodeChip />
+        </div>
 
         <nav className="hidden items-center gap-8 md:flex">
           {LINKS.map((link) => (
@@ -75,6 +82,7 @@ export function SiteNav() {
           </SheetTrigger>
           <SheetContent side="right" className="w-64">
             <nav className="mt-10 flex flex-col gap-6 px-6">
+              <JoinCodeChip className="self-start" />
               {LINKS.map((link) => (
                 <SheetClose asChild key={link.href}>
                   <a href={link.href} className="text-base text-foreground">

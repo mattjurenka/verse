@@ -2,9 +2,8 @@ import { Check, Copy } from "lucide-react"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
-
-const SERVER_NAME = "Verse"
-const SERVER_ADDRESS = "play.verseworlds.fun:2456"
+import { JoinCodeCard } from "@/components/site/JoinCode"
+import { SERVER_ADDRESS, SERVER_NAME, useJoin } from "@/lib/join"
 
 function CopyAddress() {
   const [copied, setCopied] = useState(false)
@@ -31,16 +30,24 @@ function CopyAddress() {
 }
 
 export function Connect() {
+  const { code } = useJoin()
+
   return (
     <section id="connect" className="border-t border-border/60 py-20 sm:py-28">
       <div className="mx-auto max-w-3xl px-6 text-center">
         <h2 className="text-3xl sm:text-4xl">Join {SERVER_NAME}</h2>
         <p className="mt-4 text-muted-foreground">
           Same unmodified Valheim client - nothing to install. Connect, and you'll land in your
-          own verse automatically.
+          own verse automatically. No password.
         </p>
 
-        <div className="mt-10 grid gap-6 text-left sm:grid-cols-2">
+        {/* The code first and biggest: it is the way in that works from every platform, and
+            the only one a console player has. */}
+        <div className="mt-10">
+          <JoinCodeCard />
+        </div>
+
+        <div className="mt-6 grid gap-6 text-left sm:grid-cols-2">
           <Card className="border-border/60 bg-card/50">
             <CardContent className="pt-6">
               <h3 className="mb-2 font-heading text-sm tracking-wider text-primary">
@@ -48,17 +55,20 @@ export function Connect() {
               </h3>
               <p className="text-sm text-muted-foreground">
                 In Valheim, open <strong className="text-foreground">Start Game → Servers</strong>{" "}
-                and search for <strong className="text-foreground">{SERVER_NAME}</strong>.
+                and search for <strong className="text-foreground">{SERVER_NAME}</strong>. No
+                password needed.
               </p>
             </CardContent>
           </Card>
           <Card className="border-border/60 bg-card/50">
             <CardContent className="pt-6">
               <h3 className="mb-2 font-heading text-sm tracking-wider text-primary">
-                Direct connect
+                By address
               </h3>
               <p className="mb-3 text-sm text-muted-foreground">
-                Or join by address straight from the server list's "Join IP" tab:
+                {code
+                  ? "On PC you can also use the server list's \"Join IP\" tab:"
+                  : "Use the server list's \"Join IP\" tab:"}
               </p>
               <CopyAddress />
             </CardContent>

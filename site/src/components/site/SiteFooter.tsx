@@ -1,10 +1,16 @@
+import { JoinCodeChip } from "@/components/site/JoinCode"
+
 export function SiteFooter() {
   return (
     <footer className="border-t border-border/60 py-10">
       <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-6 text-center text-sm text-muted-foreground sm:flex-row sm:text-left">
-        <p>
-          <span className="font-heading tracking-wide text-foreground">VERSE</span> ·
-          verseworlds.fun
+        <p className="flex flex-col items-center gap-3 sm:flex-row">
+          <span>
+            <span className="font-heading tracking-wide text-foreground">VERSE</span> ·
+            verseworlds.fun
+          </span>
+          {/* Last thing on the page, for somebody who scrolled to the bottom deciding. */}
+          <JoinCodeChip />
         </p>
         <p>Not affiliated with Iron Gate AB. Valheim is their trademark, not ours.</p>
         <p className="flex gap-4">

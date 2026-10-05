@@ -48,6 +48,11 @@ APPROVED = {
 RP_ID = "valheim.jurenka.software"
 RP_NAME = "Valheim admin"
 ORIGIN = f"https://{RP_ID}"
+
+# Who may read the one public endpoint, /api/join, from a browser. Everything else on this
+# panel is passkey-gated; the join code is the opposite of a secret - it is the thing players
+# are given - and verseworlds.fun needs it to put on the page.
+SITE_ORIGINS = ("https://verseworlds.fun", "https://www.verseworlds.fun")
 LISTEN = ("127.0.0.1", 8088)
 UNIT = "valheim"
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -56,6 +61,80 @@ MAX_REGISTRATIONS = 500
 SESSION_TTL = 12 * 3600
 CHALLENGE_TTL = 300
 MAX_BODY = 64 * 1024
+
+
+# --- The join code ----------------------------------------------------------
+#
+# The crossplay join code is what players actually type to get in, and it is not ours to
+# choose: PlayFab issues it when the server registers its session, and a restart can be handed
+# a different one. So verseworlds.fun must not have it typed into the page - it would go stale
+# silently, and a stale join code is a server nobody can reach.
+#
+# This is where it comes from instead. The panel already reads the journal, and the journal is
+# where the game says what code it got: the answer is derived rather than stored, so there is
+# nothing to keep in sync. The one public route on this panel, because the join code is the
+# opposite of a secret.
+
+JOIN_TTL = 30.0
+_join = {"at": 0.0, "body": None}
+_join_lock = threading.Lock()
+
+# "Session "..." with join code 968470 and IP 1.2.3.4:2456 is active with 0 player(s)"
+#
+# Deliberately the *activation* line and not "registered with join code": a code that was
+# registered but never activated is the exact shape of crossplay's worst failure - the server
+# looks healthy and no discovery path works. See HANDOFF.md. If the only line present is a
+# registration, the code is not usable yet and this says so by reporting none.
+JOIN_ACTIVE = re.compile(r"with join code (\d+) and IP \S+ is active")
+
+
+def join_info():
+    """The code players need right now, and whether crossplay is even on."""
+    now = time.time()
+
+    with _join_lock:
+        if _join["body"] is not None and now - _join["at"] < JOIN_TTL:
+            return _join["body"]
+
+    code = None
+    crossplay = False
+    running = False
+
+    try:
+        pid = subprocess.run(["systemctl", "show", "-p", "MainPID", "--value", UNIT],
+                             capture_output=True, text=True, timeout=5).stdout.strip()
+
+        if pid and pid != "0":
+            running = True
+
+            # The flag, from the process itself rather than from any config file: what the
+            # server was actually started with is the only version that counts.
+            with open(f"/proc/{pid}/cmdline", "rb") as f:
+                crossplay = b"-crossplay" in f.read().split(b"\0")
+
+            if crossplay:
+                # This process only, so a code from a previous run can never be served as
+                # though it were current.
+                out = subprocess.run(
+                    ["journalctl", "-u", UNIT, f"_PID={pid}", "-o", "cat", "--no-pager"],
+                    capture_output=True, text=True, timeout=20).stdout
+
+                for line in out.splitlines():
+                    found = JOIN_ACTIVE.search(line)
+                    if found:
+                        code = found.group(1)       # the last one wins: codes can be reissued
+    except Exception:
+        # A panel that cannot read the journal must not take the site's join code with it;
+        # the site has a fallback and would rather have "unknown" than an error.
+        pass
+
+    body = {"crossplay": crossplay, "code": code, "running": running, "checked": int(now)}
+
+    with _join_lock:
+        _join["at"] = now
+        _join["body"] = body
+
+    return body
 
 
 # --- Player tracking from the journal ---------------------------------------
@@ -251,13 +330,18 @@ class Handler(BaseHTTPRequestHandler):
     def client_ip(self):
         return self.headers.get("X-Forwarded-For", self.client_address[0]).split(",")[-1].strip()
 
-    def send(self, status, body, ctype="application/json", cookie=None):
+    def send(self, status, body, ctype="application/json", cookie=None, extra=None):
         if not isinstance(body, bytes):
             body = json.dumps(body).encode()
         self.send_response(status)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
+
+        # no-store unless the caller asks otherwise, which only /api/join does: everything
+        # else here is somebody's live admin view and must not be held anywhere. Sending both
+        # would be two conflicting Cache-Control headers, and the cacheable one would lose.
+        extra = extra or {}
+        self.send_header("Cache-Control", extra.get("Cache-Control", "no-store"))
         self.send_header("Content-Security-Policy",
                          "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; "
                          "img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
@@ -265,6 +349,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Referrer-Policy", "no-referrer")
         if cookie:
             self.send_header("Set-Cookie", cookie)
+        for name, value in extra.items():
+            if name == "Cache-Control":
+                continue
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(body)
 
@@ -286,6 +374,17 @@ class Handler(BaseHTTPRequestHandler):
             return self.static("app.js", "text/javascript; charset=utf-8")
         if path == "/app.css":
             return self.static("app.css", "text/css; charset=utf-8")
+        if path == "/api/join":
+            # The one route with no session check. It carries the join code and nothing else -
+            # no player names, no host metrics, no console - and the join code is the thing
+            # players are handed, so there is nothing here to protect. verseworlds.fun reads
+            # it so that the code on the page is the code the server actually has.
+            origin = self.headers.get("Origin")
+            extra = {"Cache-Control": "public, max-age=30"}
+            if origin in SITE_ORIGINS:
+                extra["Access-Control-Allow-Origin"] = origin
+            return self.send(200, join_info(), extra=extra)
+
         if path == "/api/me":
             _, s = self.session()
             if not s:
