@@ -16,6 +16,7 @@
     <Compile Include="../../src/Verse/CommandText.cs" />
     <Compile Include="../../src/Verse/SleepRule.cs" />
     <Compile Include="../../src/Verse/AccountId.cs" />
+    <Compile Include="../../src/Verse/AdminName.cs" />
     <Compile Include="../../src/Verse/ArenaRules.cs" />
   </ItemGroup>
 </Project>

@@ -208,6 +208,66 @@ class P
         Check(Verse.AccountId.Canonical("") == "", "empty stays empty");
         Check(Verse.AccountId.Canonical(null) == null, "null stays null");
 
+        Console.WriteLine("\n--- the admin badge ---");
+        // The badge is only worth drawing if it cannot be worn by somebody who is not an
+        // admin, and a character name is whatever the client said it was: nothing validates it
+        // past three characters, and names - unlike chat text - never have their angle
+        // brackets taken out on arrival. So every case here is really one question, which is
+        // whether `Of` is the only way to end up wearing one.
+        const string badge = "<color=red>[ADMIN]</color> ";
+
+        Check(Verse.AdminName.Of("Matt", admin: true) == badge + "Matt",
+              "an admin gets the badge in front of their name");
+        Check(Verse.AdminName.Of("Matt", admin: false) == "Matt",
+              "everybody else keeps the name they chose");
+
+        // The forgery, spelled exactly as the real thing. Its brackets go, so what is left is
+        // visibly inert text rather than a red badge.
+        const string forged = "<color=red>[ADMIN]</color> Matt";
+        Check(!Verse.AdminName.Of(forged, admin: false).Contains("<"),
+              "a forged badge loses the markup that would have coloured it");
+        Check(!Verse.AdminName.Of(forged, admin: false).Contains("[ADMIN]"),
+              "and loses the word as well");
+        Check(Verse.AdminName.Of(forged, admin: false) != forged,
+              "so a non-admin cannot send a name that renders as one");
+        Check(Verse.AdminName.Of("[ADMIN] Matt", admin: false) == "Matt",
+              "an uncoloured [ADMIN] is taken out too, since the chat line colours the name");
+        Check(Verse.AdminName.Of("[admin] Matt", admin: false) == "Matt",
+              "in any case");
+
+        // Scrubbing is for the tag and for markup, not for names that merely resemble it.
+        Check(Verse.AdminName.Of("[ADMINISTRATOR]", admin: false) == "[ADMINISTRATOR]",
+              "a name that only starts like the tag is left alone");
+        Check(Verse.AdminName.Of("Gudrun the Admin", admin: false) == "Gudrun the Admin",
+              "and so is the word on its own");
+
+        // Idempotence in both directions. `UpdatePlayerList` rebuilds the list from the
+        // undecorated peer field every pass, so this should never be load-bearing - which is
+        // the reason to pin it rather than assume it.
+        Check(Verse.AdminName.Of(Verse.AdminName.Of("Matt", true), true) == badge + "Matt",
+              "running it twice does not stack two badges");
+        Check(Verse.AdminName.Of(Verse.AdminName.Of("Matt", true), false) == "Matt",
+              "and a demoted admin loses the one they had");
+
+        // Only the brackets go, so the words inside a tag survive as inert text rather than
+        // being interpreted - which is the point, and is also why scrubbing cannot be used to
+        // make somebody's name disappear.
+        Check(Verse.AdminName.Of("<b>Matt</b>", admin: false) == "bMatt/b",
+              "markup is defused, not deleted");
+
+        // A name that really was nothing but brackets would otherwise leave an empty orange
+        // colon in the chat window; "..." is what vanilla's own GetPlayerName falls back to.
+        Check(Verse.AdminName.Of("<<>>", admin: false) == "...",
+              "a name made only of brackets still leaves something to address");
+        Check(Verse.AdminName.Of("", admin: true) == badge + "...", "as does an empty one");
+        Check(Verse.AdminName.Of(null, admin: false) == "...", "and a missing one");
+
+        // What the server logs about an attempt, as opposed to what it shows.
+        Check(Verse.AdminName.Claims(forged) && Verse.AdminName.Claims("[admin]"),
+              "a name claiming to be an admin's is recognised as such");
+        Check(!Verse.AdminName.Claims("Matt") && !Verse.AdminName.Claims(null),
+              "an ordinary name is not");
+
         // --- the arena ---------------------------------------------------------------------
         // The multiplier is sub-linear because co-op power is super-linear; a linear one makes
         // a full party's run *easier* than a solo run. These are the edges of each band, which

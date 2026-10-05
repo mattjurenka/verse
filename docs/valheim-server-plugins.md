@@ -266,6 +266,17 @@ The displayed name comes from the **player list**, not from the `UserInfo.Name` 
 No entry, no line in the chat window — though `AddInworldText` still draws the floating
 text, which is what "bubble but no chat line" means when you see it.
 
+Which cuts the other way too: **the player list is how a server renames somebody** on a stock
+client. Rewriting `PlayerInfo.m_name` in an `UpdatePlayerList` postfix changes the name on chat
+lines, in the player panel and on map pins at once, and the chat line is composed as
+`"<color=orange>" + name + "</color>: …"` into TMP, so the name can carry its own rich text and
+a nested `</color>` returns to orange rather than white. `src/Verse/AdminTag.cs` is that, for an
+`[ADMIN]` badge. Rewrite only the broadcast copy — `ZNetPeer.m_playerName` is what
+`GetPeerByPlayerName`, your own commands and the server log all resolve — and remember that a
+name is unvalidated client input (`FejdStartup` checks a length of three and nothing else) while
+chat text is bracket-stripped on arrival and names are not, so anything you render as authority
+has to be scrubbed out of every other name first.
+
 ### Speaking
 
 ```csharp

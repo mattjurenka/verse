@@ -410,6 +410,11 @@ Built, in `src/Verse`:
   player is already spawned: `warp spawn` resolves the same point `Spawns` would put an
   arrival down at, and `warp bed` finds a bed the account has claimed - see `Beds.cs` for how
   that is found from server-visible ZDO fields alone, with no client cooperation.
+- **The admin badge** — `AdminTag.cs` puts a red `[ADMIN]` in front of a server admin's name by
+  rewriting the player list the server broadcasts, which is the only name a vanilla client
+  draws; `AdminName.cs` is the string half, and the scrubbing that stops a non-admin from
+  wearing one, covered by `./test.sh`. Admin is vanilla's `adminlist.txt`, the same list
+  `Verses.IsServerAdmin` already reads, so it follows promotions within ten seconds.
 - Counters every 10 s (`Verse.Metrics`) — `hidden` / `blocked` / `destroyed` / `masked` /
   `forked` / `claimed` / `reclaimed` / `placed`, plus `updates/s per peer` and which plugin is scheduling the sends.
 - A startup check. Every hook reaches a private member by name; Harmony throws on an

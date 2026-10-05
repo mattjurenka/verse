@@ -116,6 +116,7 @@ namespace Verse
                 Scenario(prefab, a, made);
                 KeyScenario(a);
                 ScatterScenario();
+                BadgeScenario(a);
             }
             catch (Exception e)
             {
@@ -323,6 +324,67 @@ namespace Verse
         // --- peers ---------------------------------------------------------------------------
 
         private static FieldInfo _znetPeers;
+
+        /// <summary>
+        /// The admin badge, from the only angle the string tests cannot reach: that it is
+        /// applied to the copy of the name that leaves the machine and not to the server's own.
+        ///
+        /// <para>Everything about how the badge is spelled is covered by <c>./test.sh</c>
+        /// against <see cref="AdminName"/>. What has to be checked in a running process is the
+        /// plumbing either side of it - that a list entry finds its connection by character
+        /// ZDO, that <c>ZNet.PlayerInfo</c> being a struct means the edit is copied back, and
+        /// that <c>ZNetPeer.m_playerName</c> comes out the far end exactly as the client sent
+        /// it, because that field is what resolves a player in commands and in the log.</para>
+        ///
+        /// <para>The forged name is the test input, so this also checks the one case that
+        /// matters: a badge a client claimed for itself does not survive the trip.</para>
+        /// </summary>
+        private static void BadgeScenario(ZNetPeer peer)
+        {
+            if (!AdminTag.Active)
+            {
+                Check("the admin badge is off, so not checked", true);
+                return;
+            }
+
+            string forged = AdminName.Badge + "impostor";
+            ZDOID character = peer.m_characterID;
+            string claimed = peer.m_playerName;
+            List<ZNet.PlayerInfo> players = ZNet.instance.GetPlayerList();
+            int at = -1;
+
+            try
+            {
+                // A PlayerInfo carries no peer uid, so a fake peer needs a character ZDO to be
+                // found by. uint.MaxValue is out of the way of real ids, which start at 1.
+                peer.m_characterID = new ZDOID(ZDOMan.GetSessionID(), uint.MaxValue);
+                peer.m_playerName = forged;
+
+                players.Add(new ZNet.PlayerInfo
+                {
+                    m_name = peer.m_playerName,
+                    m_characterID = peer.m_characterID,
+                });
+                at = players.Count - 1;
+
+                AdminTag.Apply(ZNet.instance);
+
+                string shown = players[at].m_name;
+                Check($"a badge a client gave itself does not reach the player list (\"{shown}\")",
+                      shown.IndexOf("[ADMIN]", StringComparison.OrdinalIgnoreCase) < 0 &&
+                      shown.IndexOf('<') < 0);
+                Check("the entry was written back, which a struct does not do by itself",
+                      shown != forged);
+                Check("and the name the server resolves players by is left as the client sent it",
+                      peer.m_playerName == forged);
+            }
+            finally
+            {
+                if (at >= 0 && at < players.Count) players.RemoveAt(at);
+                peer.m_characterID = character;
+                peer.m_playerName = claimed;
+            }
+        }
 
         /// <summary>
         /// A peer has to be in both lists: `ZDOMan` to be sent anything, and `ZNet` because

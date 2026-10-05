@@ -77,6 +77,57 @@ Both files are backed up in place as `*.bak-<timestamp>` before every edit.
   state), `diag portals` (every portal's tag + connection), `diag portalfix <verse>`
   (dry-run portal repair plan), `diag portalapply <verse>` (apply it).
 
+### A player's name is the server's to hand out, and nobody validates it
+
+The red `[ADMIN]` badge (`AdminTag.cs`, `AdminName.cs`) works on a stock client because of one
+fact worth keeping: **a chat line's name does not come from the chat message.**
+`Terminal.AddString(PlatformUserID, …)` takes only the sender's platform id, looks it up in the
+player list with `ZNet.TryGetPlayerByPlatformUserID`, and draws `playerInfo.m_name`. So the
+`PlayerList` package this server builds is the only place a vanilla client will read a name
+from — rewrite that copy and the new name appears on chat lines, in the player panel, on map
+pins and (via `UserInfo.Name` on the relayed `ChatMessage`, which `GlobalChat` already builds)
+over a shouter's head.
+
+Three things that make it safe to do:
+
+- **Rewrite the broadcast copy, never `ZNetPeer.m_playerName`.** That field is the server's own
+  handle on a player — `GetPeerByPlayerName`, `!verse invite <name>`, and every journal line
+  `valpanel` parses. `UpdatePlayerList` rebuilds `m_players` from it on every pass, which is
+  also why a badge can never stack up: there is nothing to make idempotent.
+- **`ZNet.PlayerInfo` is a struct.** Copy out, edit, copy back, exactly as vanilla does one loop
+  earlier for `m_serverAssignedDisplayName`.
+- **Colour nests.** The client composes `"<color=orange>" + name + "</color>: …"` into a
+  `TextMeshProUGUI`, and TMP keeps a colour stack, so `<color=red>` inside the name pops back to
+  orange rather than falling through to white.
+
+**And one that makes the badge worth having.** A character name is whatever the client said it
+was in `RPC_PeerInfo`: `FejdStartup.OnNewCharacterDone` checks only that it is three characters
+long, and while chat *text* has its angle brackets replaced on arrival
+(`Chat.OnNewChatMessage` does `text.Replace('<', ' ')`), names never do. Anyone could therefore
+have called themselves `<color=red>[ADMIN]</color> Someone` and been indistinguishable from the
+real thing — a modded client needs only `PlayerProfile.SetName`. So angle brackets and any
+literal `[ADMIN]` now come out of every name the server did not put them in, and the attempt is
+logged once per connection. This is why `AdminName` is a separate Unity-free file: the scrubbing
+is the security boundary, so it is covered by `./test.sh` rather than argued about.
+
+### Known, not fixed: `ZNet.WritePlayerInfo` writes the wrong count
+
+```csharp
+private ZPackage WritePlayerInfo(List<PlayerInfo> playerInfoList) {
+    ZPackage zPackage = new ZPackage();
+    zPackage.Write(m_players.Count);          // the field, not the parameter
+    foreach (PlayerInfo playerInfo in playerInfoList) { … }
+```
+
+Both the client and the server build do this. Vanilla never notices because it only ever passes
+`m_players` itself. **`Isolation.ZNet_SendPlayerList_Patch` passes a filtered subset**, so the
+moment two players are in different verses the package declares more entries than it carries and
+the receiving `RPC_PlayerList` reads past the end of it. Not observed yet — with everyone online
+in one verse the subset is the whole list and the counts agree — but it would show up as clients
+with an empty player list, which on the chat path means **no chat line at all** (`AddString`
+returns early when the lookup fails) while the floating text still appears. The fix is to write
+the package without that method, or to swap `m_players` for the subset around the call.
+
 ### Server-side terrain editing — works, and three traps found doing it
 
 `src/Verse/Ground.cs` writes real terrain edits from the dedicated server, with no client

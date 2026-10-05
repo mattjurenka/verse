@@ -67,6 +67,14 @@ namespace Verse
             if (!Decode(data, from, out Vector3 pos, out int type, out UserInfo who, out string text))
                 return false;
 
+            // The badge has to go on twice, because a client draws the speaker's name from two
+            // different places: the chat line reads it out of the player list (see
+            // <see cref="AdminTag"/>) and the floating text over a shout reads
+            // `UserInfo.Name` straight off this message. Only one of those is passing through
+            // here, so only that one is set here.
+            if (AdminTag.Active && who != null)
+                who.Name = AdminName.Of(who.Name, Verses.IsServerAdmin(Peers.PlatformId(from)));
+
             float now = Time.time;
             if (data.m_senderPeerID == _lastSender && type == _lastType &&
                 text == _lastText && now - _lastAt < 0.5f)

@@ -43,6 +43,7 @@ namespace Verse
         internal static ConfigEntry<bool> PerVerseKeys;
         internal static ConfigEntry<bool> EnsurePlayerEvents;
         internal static ConfigEntry<bool> GlobalChat;
+        internal static ConfigEntry<bool> AdminTagEnabled;   // not "AdminTag": that is the class
         internal static ConfigEntry<bool> ScatterNewVerses;
         internal static ConfigEntry<float> ScatterRadius;
         internal static ConfigEntry<int> MigrateLegacyInto;
@@ -210,6 +211,17 @@ namespace Verse
                 "difference: normal chat stops appearing as a bubble over the speaker's head " +
                 "and appears as floating text at their position, because the bubble only " +
                 "exists on the path being replaced. Off isolates chat to a verse.");
+            AdminTagEnabled = Config.Bind("Verse", "AdminTag", true,
+                "Show a red [ADMIN] in front of a server admin's name - on their chat lines, " +
+                "in the player panel, on their map pin and over their head when they shout. " +
+                "Admin means vanilla's own adminlist.txt, which is re-read every ten seconds, " +
+                "so it follows promotions without a restart. This works on an unmodified " +
+                "client because the name a client draws comes from the player list the server " +
+                "sends, not from the chat message. It also takes angle brackets and any " +
+                "literal [ADMIN] out of everybody else's name, because a character name is " +
+                "whatever the client claimed it was and a badge anyone can wear is not a " +
+                "badge; the server's own handle on a player (ZNetPeer.m_playerName, which is " +
+                "what resolves a name in commands and in the log) is left exactly as it was.");
             ScatterNewVerses = Config.Bind("Verse", "ScatterNewVerses", false,
                 "Start each new verse away from where the older ones have been playing, " +
                 "instead of at the world's start temple like every other verse. The one thing " +
